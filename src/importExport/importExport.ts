@@ -289,6 +289,62 @@ globalThis.exportjson = (saveAs: boolean = true) => { // Indien de boolean false
     globalThis.propUpload(text);
 }
 
+/**
+ * Maakt een deelbare link (alles zit in de URL hash).
+ * We gebruiken hetzelfde EDS004 compressie-formaat als opslaan, maar dan base64url zodat het veilig in een URL past.
+ */
+globalThis.getShareLink = () => {
+
+    function uint8ArrayToBase64(uint8Array: Uint8Array): string {
+        const CHUNK_SIZE = 0x8000;
+        let binaryString = '';
+        for (let i = 0; i < uint8Array.length; i += CHUNK_SIZE) {
+            binaryString += String.fromCharCode.apply(
+                null,
+                uint8Array.subarray(i, i + CHUNK_SIZE)
+            );
+        }
+        return btoa(binaryString);
+    }
+
+    function base64ToBase64Url(b64: string): string {
+        return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+    }
+
+    const baseUrl = window.location.href.split('#')[0];
+    const origtext: string = globalThis.structure.toJsonObject(true);
+
+    try {
+        const encoder = new TextEncoder();
+        const inputBytes = new Uint8Array(encoder.encode(origtext));
+        const deflated = new Uint8Array(pako.deflate(inputBytes));
+        const b64 = uint8ArrayToBase64(deflated);
+        const payload = 'EDS0040000' + base64ToBase64Url(b64);
+        return baseUrl + '#share=' + payload;
+    } catch (error) {
+        console.log('Terugvallen naar TXT-share vanwege compressiefout: ' + error);
+        const payload = 'TXT0040000' + encodeURIComponent(origtext);
+        return baseUrl + '#share=' + payload;
+    }
+}
+
+globalThis.copyShareLink = async () => {
+    const link = globalThis.getShareLink();
+
+    try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            await navigator.clipboard.writeText(link);
+            alert('Deel-link gekopieerd naar het klembord.');
+            return;
+        }
+    } catch (e) {
+        // Fall through to prompt
+    }
+
+    // Fallback for browsers without clipboard permissions/API
+    prompt('Kopieer deze deel-link:', link);
+}
+
 /* FUNCTION json_to_structure
 
    Takes a string in pure json and puts the content in a hierarchical list that is returned.
@@ -744,6 +800,29 @@ export function showFilePage() {
       </tr>
     </table><br>    
     `;
+
+        strleft += `
+        <table border="1px" style="border-collapse:collapse" align="center" width="100%">
+            <tr>
+                <td width="100%" align="center" bgcolor="LightGrey">
+                    <b>Delen</b>
+                </td>
+            </tr>
+            <tr>
+                <td width="100%" align="left">
+                        <table border=0>
+                            <tr>
+                                <td width=350 style="vertical-align:top;padding:5px">
+                                    <button style="font-size:14px" onclick="copyShareLink()">Kopieer deel-link</button>
+                                </td>
+                                <td style="vertical-align:top;padding:7px">
+                                    Maakt een link om dit schema te delen. Alles zit in de URL (geen server).
+                                </td>
+                            </tr>
+                        </table>
+                </td>
+            </tr>
+        </table><br>`;
 
     strleft += `
     <table border="1px" style="border-collapse:collapse" align="center" width="100%">

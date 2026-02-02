@@ -57,6 +57,9 @@ declare global {
         propUpload: (text: string) => void;
         loadFileFromText: () => void;
         forceUndoStore: () => void;
+
+        getShareLink: () => string;
+        copyShareLink: () => Promise<void>;
     }
 }
 

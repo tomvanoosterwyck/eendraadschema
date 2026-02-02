@@ -1433,6 +1433,92 @@ left_col_inner.addEventListener('change', function(event) {
     handleHlEditChange(event.target);
 });
 
+function tryLoadFromShareLink(): boolean {
+    try {
+        const rawHash = window.location.hash && window.location.hash.startsWith('#')
+            ? window.location.hash.slice(1)
+            : window.location.hash;
+        if (!rawHash) return false;
+
+        const params = new URLSearchParams(rawHash);
+        const payload = params.get('share') || params.get('s');
+        if (!payload) return false;
+
+        function clearShareHashFromUrl() {
+            try {
+                const baseUrl = window.location.href.split('#')[0];
+                window.history.replaceState(null, document.title, baseUrl);
+            } catch (e) {
+                // Ignore; not critical
+            }
+        }
+
+        function showLoadedToast(message: string) {
+            try {
+                const existing = document.getElementById('eds_share_toast');
+                if (existing) existing.remove();
+
+                const toast = document.createElement('div');
+                toast.id = 'eds_share_toast';
+                toast.textContent = message;
+                toast.style.position = 'fixed';
+                toast.style.right = '16px';
+                toast.style.bottom = '16px';
+                toast.style.zIndex = '99999';
+                toast.style.padding = '10px 12px';
+                toast.style.borderRadius = '8px';
+                toast.style.background = 'rgba(0,0,0,0.85)';
+                toast.style.color = 'white';
+                toast.style.fontSize = '13px';
+                toast.style.maxWidth = '60vw';
+                toast.style.boxShadow = '0 8px 24px rgba(0,0,0,0.25)';
+                toast.style.pointerEvents = 'none';
+                document.body.appendChild(toast);
+                setTimeout(() => {
+                    toast.remove();
+                }, 2600);
+            } catch (e) {
+                // Ignore
+            }
+        }
+
+        function base64UrlToBase64(b64url: string): string {
+            let b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+            while (b64.length % 4 !== 0) b64 += '=';
+            return b64;
+        }
+
+        if (payload.startsWith('EDS') && payload.length > 10) {
+            const header = payload.substring(0, 10); // EDS###0000
+            const b64url = payload.substring(10);
+            const edsString = header + base64UrlToBase64(b64url);
+            EDStoStructure(edsString, true, true);
+            if (globalThis.structure.sitplan) globalThis.structure.sitplan.activePage = 1;
+            clearShareHashFromUrl();
+            showLoadedToast('Schema geladen uit deel-link.');
+            return true;
+        }
+
+        if (payload.startsWith('TXT') && payload.length > 10) {
+            const header = payload.substring(0, 10); // TXT###0000
+            const encoded = payload.substring(10);
+            const txtString = header + decodeURIComponent(encoded);
+            EDStoStructure(txtString, true, true);
+            if (globalThis.structure.sitplan) globalThis.structure.sitplan.activePage = 1;
+            clearShareHashFromUrl();
+            showLoadedToast('Schema geladen uit deel-link.');
+            return true;
+        }
+
+        console.warn('Onbekend share-formaat in URL.');
+        return false;
+    } catch (error) {
+        console.error('Fout bij laden van deel-link:', error);
+        alert('Kon het schema niet laden uit de deel-link (de link is mogelijk beschadigd of te oud).');
+        return false;
+    }
+}
+
 EDStoStructure(globalThis.EXAMPLE_DEFAULT,false); //Just in case the user doesn't select a scheme and goes to drawing immediately, there should be something there
 
 // Create the autoSaver
@@ -1462,6 +1548,14 @@ let lastSavedInfo:any = null;
     [lastSavedStr, lastSavedInfo] = await globalThis.autoSaver.loadLastSaved();
     if ((lastSavedStr != null) /* && (lastSavedInfo.recovery == true) */ ) recoveryAvailable = true;
 })().then(() => {
+    const loadedFromShare = tryLoadFromShareLink();
+    if (loadedFromShare) {
+        let myCookieBanner = new CookieBanner();
+        myCookieBanner.run();
+        globalThis.autoSaver.start();
+        return;
+    }
+
     if (!recoveryAvailable) {
         EDStoStructure(globalThis.EXAMPLE_DEFAULT,false);
         restart_all();
