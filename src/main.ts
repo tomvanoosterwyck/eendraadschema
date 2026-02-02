@@ -22,8 +22,12 @@ import { MultiLevelStorage } from "./storage/MultiLevelStorage";
 import { undoRedo } from "./undoRedo";
 import { importExportUsingFileAPI } from "./importExport/importExport";
 import { changelog } from "./changelog";
+import { initTheme, onThemeChanged, toggleTheme, type Theme } from "./ThemeManager";
 
 import "../css/all.css";
+
+// Apply theme as early as possible to avoid a flash.
+initTheme();
 
 declare const BUILD_DATE: string;
 console.log(BUILD_DATE);
@@ -386,6 +390,197 @@ globalThis.HLRedrawTreeSVG = () => {
 
     const right_col_inner = document.getElementById("right_col_inner");
     if (right_col_inner != null) right_col_inner.innerHTML = str;
+
+    // Ensure clicking an SVG component briefly highlights it in the tree view.
+    setupEdsClickToTreeFlash();
+}
+
+const edsTreeFlashTimers: Map<number, number> = new Map();
+
+function expandTreePathToId(id: number): boolean {
+    try {
+        const structure = globalThis.structure;
+        if (structure == null) return false;
+
+        let changed = false;
+        let currentId = id;
+
+        // Walk up via parent pointers and uncollapse every ancestor.
+        while (Number.isFinite(currentId) && currentId > 0) {
+            const currentOrdinal = structure.getOrdinalById(currentId);
+            if (currentOrdinal == null) break;
+
+            const parentId = structure.data[currentOrdinal]?.parent;
+            if (parentId == null || parentId === 0) break;
+
+            const parentOrdinal = structure.getOrdinalById(parentId);
+            if (parentOrdinal == null) break;
+
+            const parentItem = structure.data[parentOrdinal];
+            if (parentItem != null && parentItem.collapsed) {
+                parentItem.collapsed = false;
+                changed = true;
+            }
+
+            currentId = parentId;
+        }
+
+        return changed;
+    } catch (e) {
+        return false;
+    }
+}
+
+function flashTreeViewItemById(id: number) {
+    if (!Number.isFinite(id) || id <= 0) return;
+
+    // Ensure the path is expanded so the row exists in the DOM.
+    const expanded = expandTreePathToId(id);
+
+    let elem = document.getElementById('id_elem_' + id) as HTMLElement | null;
+
+    // If the tree isn't currently rendered (e.g. in 'draw' view), bring back the 2col view.
+    if (elem == null && globalThis.structure?.properties?.currentView !== '2col') {
+        try {
+            globalThis.toggleAppView('2col');
+            globalThis.HLRedrawTreeHTMLLight();
+            elem = document.getElementById('id_elem_' + id) as HTMLElement | null;
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    // If we expanded ancestors, re-render the tree so the row becomes visible.
+    if (expanded) {
+        try {
+            globalThis.HLRedrawTreeHTMLLight();
+            elem = document.getElementById('id_elem_' + id) as HTMLElement | null;
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    if (elem == null) return;
+
+    // Scroll the item into view (left column is scrollable).
+    try {
+        elem.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    } catch (e) {
+        // ignore
+    }
+
+    const existingTimer = edsTreeFlashTimers.get(id);
+    if (existingTimer != null) {
+        clearTimeout(existingTimer);
+        edsTreeFlashTimers.delete(id);
+    }
+
+    // Re-trigger animation even if it was already applied.
+    elem.classList.remove('eds-tree-flash');
+    // Force reflow so the class re-add reliably restarts the animation.
+    void elem.offsetWidth;
+    elem.classList.add('eds-tree-flash');
+
+    const timer = window.setTimeout(() => {
+        elem.classList.remove('eds-tree-flash');
+        edsTreeFlashTimers.delete(id);
+    }, 2600);
+
+    edsTreeFlashTimers.set(id, timer);
+}
+
+function setupEdsClickToTreeFlash() {
+    const right_col_inner = document.getElementById('right_col_inner') as HTMLElement | null;
+    if (right_col_inner == null) return;
+
+    if ((right_col_inner as any)._edsClickToTreeFlashBound === true) return;
+    (right_col_inner as any)._edsClickToTreeFlashBound = true;
+
+    right_col_inner.addEventListener('click', (ev: MouseEvent) => {
+        const target = ev.target as Element | null;
+        if (target == null) return;
+
+        // Only react to clicks inside the EDS SVG container.
+        if (target.closest('#EDS') == null) return;
+
+        const edsContainer = target.closest('#EDS') as HTMLElement | null;
+        if (edsContainer == null) return;
+
+        const id = getEdsIdFromClickEvent(ev, target, edsContainer);
+        if (id == null) return;
+
+        flashTreeViewItemById(id);
+    });
+}
+
+function getEdsIdFromClickEvent(ev: MouseEvent, target: Element, edsContainer: HTMLElement): number | null {
+    // 1) Try composedPath (best: works even when target is <svg>)
+    const anyEv = ev as any;
+    if (typeof anyEv.composedPath === 'function') {
+        const path = anyEv.composedPath() as Array<any>;
+        for (let i = 0; i < path.length; i++) {
+            const node = path[i];
+            if (node && typeof node.getAttribute === 'function') {
+                const idStr = node.getAttribute('data-eds-id');
+                const parsed = idStr != null ? Number(idStr) : NaN;
+                if (Number.isFinite(parsed) && parsed > 0) return parsed;
+            }
+            if (node === edsContainer) break;
+        }
+    }
+
+    // 2) Try closest on the DOM target.
+    const idNode = target.closest('[data-eds-id]') as Element | null;
+    if (idNode != null) {
+        const idStr = idNode.getAttribute('data-eds-id');
+        const parsed = idStr != null ? Number(idStr) : NaN;
+        if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+
+    // 3) Try elementsFromPoint at click location.
+    if (typeof document.elementsFromPoint === 'function') {
+        const elems = document.elementsFromPoint(ev.clientX, ev.clientY);
+        for (let i = 0; i < elems.length; i++) {
+            const el = elems[i];
+            if (el.closest('#EDS') == null) continue;
+            const n = el.closest('[data-eds-id]');
+            if (n != null) {
+                const idStr = n.getAttribute('data-eds-id');
+                const parsed = idStr != null ? Number(idStr) : NaN;
+                if (Number.isFinite(parsed) && parsed > 0) return parsed;
+            }
+        }
+    }
+
+    // 4) Fallback: nearest bounding-box match within a small radius.
+    return findNearestEdsIdInVicinity(edsContainer, ev.clientX, ev.clientY, 14);
+}
+
+function findNearestEdsIdInVicinity(edsContainer: HTMLElement, clientX: number, clientY: number, maxDistancePx: number): number | null {
+    const candidates = edsContainer.querySelectorAll('[data-eds-id]');
+    let bestId: number | null = null;
+    let bestDistSq = maxDistancePx * maxDistancePx;
+
+    for (let i = 0; i < candidates.length; i++) {
+        const node = candidates[i];
+        const idStr = node.getAttribute('data-eds-id');
+        if (idStr == null || idStr === '' || idStr === '0') continue;
+        const id = Number(idStr);
+        if (!Number.isFinite(id) || id <= 0) continue;
+
+        const rect = (node as Element).getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) continue;
+
+        const dx = clientX < rect.left ? (rect.left - clientX) : (clientX > rect.right ? (clientX - rect.right) : 0);
+        const dy = clientY < rect.top ? (rect.top - clientY) : (clientY > rect.bottom ? (clientY - rect.bottom) : 0);
+        const distSq = dx * dx + dy * dy;
+        if (distSq <= bestDistSq) {
+            bestDistSq = distSq;
+            bestId = id;
+        }
+    }
+
+    return bestId;
 }
 
 globalThis.HLRedrawTree = () => {
@@ -715,6 +910,38 @@ menuItems = [
 PROP_edit_menu(menuItems);
 
 globalThis.topMenu = new TopMenu('minitabs', 'menu-item', menuItems);
+
+// Add a theme toggle button at the right side of the top menu.
+const minitabs = document.getElementById('minitabs');
+if (minitabs) {
+    const li = document.createElement('li');
+    li.className = 'menu-item menu-item-right';
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.id = 'theme-toggle';
+    button.className = 'theme-toggle';
+
+    const updateToggle = (theme: Theme) => {
+        const nextLabel = theme === 'dark' ? 'Licht' : 'Donker';
+        button.textContent = nextLabel;
+        button.setAttribute('aria-label', `Schakel naar ${nextLabel.toLowerCase()}e modus`);
+        button.title = `Schakel naar ${nextLabel.toLowerCase()}e modus`;
+    };
+
+    button.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        toggleTheme();
+    });
+
+    li.appendChild(button);
+    minitabs.appendChild(li);
+
+    // Keep button label in sync (also updates for system theme changes).
+    onThemeChanged(updateToggle);
+    updateToggle(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
+}
 
 // Now add handlers for everything that changes in the left column
 const left_col_inner = document.querySelector('#left_col_inner');

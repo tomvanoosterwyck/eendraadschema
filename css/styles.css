@@ -13,6 +13,128 @@
   --total-offset: calc(var(--menu-height) + var(--ribbon-height) + var(--status-bar-height));
 
   --EDStekenFoutKleur: #8C5A00; /* Very dark amber */
+
+  /* Theme variables (light default) */
+  --bg: #ffffff;
+  --text: #111827;
+  --muted-text: #6b7280;
+  --surface-1: #f8f8f8;
+  --surface-2: #e8e8e8;
+  --border: #c8c8c8;
+  --border-strong: #b8b8b8;
+  --hover: #cccccc;
+
+  --menu-bg: var(--surface-2);
+  --ribbon-bg: var(--surface-1);
+  --canvas-bg: var(--bg);
+  --popup-bg: var(--bg);
+  --context-bg: #f0f0f0;
+  --context-hover: #e0e0e0;
+
+  --link: #0066ff;
+  --menu-link: #555565;
+  --menu-link-hover: #333333;
+  --menu-current: #0066ff;
+  --menu-accent: #ff6600;
+
+  /* SVG ink colors (for generated diagrams that hardcode black) */
+  --eds-ink: #000000;
+  --eds-ink-on-dark: #e5e7eb;
+
+  color-scheme: light;
+}
+
+/* Dark theme overrides */
+html[data-theme="dark"] {
+  --bg: #0b1220;
+  --text: #e5e7eb;
+  --muted-text: #9ca3af;
+  --surface-1: #0f172a;
+  --surface-2: #111c33;
+  --border: #26324b;
+  --border-strong: #33415e;
+  --hover: #1f2a44;
+
+  --menu-bg: var(--surface-2);
+  --ribbon-bg: var(--surface-1);
+  --canvas-bg: #0b1220;
+  --popup-bg: #0f172a;
+  --context-bg: #0f172a;
+  --context-hover: #142041;
+
+  --link: #7aa7ff;
+  --menu-link: #cbd5e1;
+  --menu-link-hover: #ffffff;
+  --menu-current: #7aa7ff;
+  --menu-accent: #ff9a3c;
+
+  --eds-ink: var(--eds-ink-on-dark);
+
+  color-scheme: dark;
+}
+
+/* In dark mode, keep the actual eendraadschema drawing on a light paper surface.
+   This matches typical editor UX and keeps all existing (mostly black) symbol art readable. */
+html[data-theme="dark"] #EDS {
+  background-color: #ffffff;
+  color: #000000;
+  --eds-ink: #000000;
+  display: inline-block;
+  padding: 12px;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+}
+
+/* Ensure generated SVG diagrams remain readable in dark mode.
+   The SVG content often uses hardcoded black strokes/fills, so we override only those.
+*/
+#EDS svg,
+#EDSSVG {
+  color: var(--eds-ink);
+}
+
+#EDS svg text,
+#EDSSVG text,
+.svg-icon text {
+  fill: var(--eds-ink) !important;
+}
+
+/* Override common “black” stroke variants */
+#EDS svg [stroke="black"],
+#EDS svg [stroke="#000"],
+#EDS svg [stroke="#000000"],
+#EDSSVG [stroke="black"],
+#EDSSVG [stroke="#000"],
+#EDSSVG [stroke="#000000"],
+.svg-icon [stroke="black"],
+.svg-icon [stroke="#000"],
+.svg-icon [stroke="#000000"],
+#EDS svg [style*="stroke:black"],
+#EDS svg [style*="stroke: black"],
+#EDSSVG [style*="stroke:black"],
+#EDSSVG [style*="stroke: black"],
+.svg-icon [style*="stroke:black"],
+.svg-icon [style*="stroke: black"] {
+  stroke: var(--eds-ink) !important;
+}
+
+/* Override common “black” fill variants (icons, text-as-path, etc) */
+#EDS svg [fill="black"],
+#EDS svg [fill="#000"],
+#EDS svg [fill="#000000"],
+#EDSSVG [fill="black"],
+#EDSSVG [fill="#000"],
+#EDSSVG [fill="#000000"],
+.svg-icon [fill="black"],
+.svg-icon [fill="#000"],
+.svg-icon [fill="#000000"],
+#EDS svg [style*="fill:black"],
+#EDS svg [style*="fill: black"],
+#EDSSVG [style*="fill:black"],
+#EDSSVG [style*="fill: black"],
+.svg-icon [style*="fill:black"],
+.svg-icon [style*="fill: black"] {
+  fill: var(--eds-ink) !important;
 }
 
 /* DOCUMENT */
@@ -21,12 +143,14 @@
   box-sizing: border-box; /* Ensure all elements include border and padding in their dimensions */
 }
 
-html {height:100%; background-color: #FFFFFF;}
+html {height:100%; background-color: var(--bg);}
 
 body {
   margin: 0;
   padding: 0;
   cursor: default;
+  color: var(--text);
+  background-color: var(--bg);
 }
 
 /* SPINNER STUFF */
@@ -59,7 +183,8 @@ button, select, select option, input[type="checkbox"] {
 }
 
 select option {
-  background-color: #f7f7f7;
+  background-color: var(--surface-1);
+  color: var(--text);
 }
 
 td[contenteditable="true"] { 
@@ -78,10 +203,10 @@ td[contenteditable="true"] {
 #topmenu {
   height: var(--menu-height);
   width: 100%; 
-  background-color: #e8e8e8;
+  background-color: var(--menu-bg);
   align-items: center;
   padding: 0px 7px 0px 7px;
-  border-bottom: 1px solid #b8b8b8;
+  border-bottom: 1px solid var(--border-strong);
   -webkit-user-select: none; /* Safari */
   -moz-user-select: none; /* Firefox */
   -ms-user-select: none; /* IE 10 and IE 11 */
@@ -108,17 +233,34 @@ ul#minitabs li.menu-item {
 ul#minitabs a {
   text-decoration: none;
   padding: 0 0 3px;
-  border-bottom: 4px solid #e8e8e8; 
-  color: #555565
+  border-bottom: 4px solid var(--menu-bg);
+  color: var(--menu-link)
 }
 ul#minitabs a#current {
-  border-color: #F60;
-  color:#06F
+  border-color: var(--menu-accent);
+  color: var(--menu-current)
 }
 ul#minitabs a:hover {
-  border-color: #F60;
-  color: #333;
+  border-color: var(--menu-accent);
+  color: var(--menu-link-hover);
   cursor: pointer
+}
+
+ul#minitabs li.menu-item-right {
+  margin-left: auto;
+}
+
+.theme-toggle {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-weight: 600;
+}
+
+.theme-toggle:hover {
+  background-color: var(--hover);
 }
 
 /* RIBBON */
@@ -133,14 +275,14 @@ ul#minitabs a:hover {
   justify-content: space-between;
   /*padding: 0px 12px 0px 12px;*/ 
   display: flex;
-  background-color: #f8f8f8;
+  background-color: var(--ribbon-bg);
   align-items: center;
   width: 100%;
   -webkit-user-select: none; /* Safari */
   -moz-user-select: none; /* Firefox */
   -ms-user-select: none; /* IE 10 and IE 11 */
   user-select: none; /* Standard syntax */
-  border-bottom: 1px solid #c8c8c8; 
+  border-bottom: 1px solid var(--border);
   flex-direction: row;
 }
 
@@ -153,14 +295,14 @@ ul#minitabs a:hover {
   justify-content: left;
   /*padding: 0px 12px 0px 12px;*/ 
   display: flex;
-  background-color: #f8f8f8;
+  background-color: var(--ribbon-bg);
   align-items: center;
   width: 100%;
   -webkit-user-select: none; /* Safari */
   -moz-user-select: none; /* Firefox */
   -ms-user-select: none; /* IE 10 and IE 11 */
   user-select: none; /* Standard syntax */
-  border-bottom: 1px solid #c8c8c8; 
+  border-bottom: 1px solid var(--border);
   flex-direction: row;
 }
 
@@ -173,14 +315,14 @@ ul#minitabs a:hover {
   justify-content: right;
   /*padding: 0px 12px 0px 12px;*/ 
   display: flex;
-  background-color: #f8f8f8;
+  background-color: var(--ribbon-bg);
   align-items: center;
   width: 100%;
   -webkit-user-select: none; /* Safari */
   -moz-user-select: none; /* Firefox */
   -ms-user-select: none; /* IE 10 and IE 11 */
   user-select: none; /* Standard syntax */
-  border-bottom: 1px solid #c8c8c8; 
+  border-bottom: 1px solid var(--border);
   flex-direction: row;
 }
 
@@ -189,14 +331,14 @@ ul#minitabs a:hover {
   margin: 0 0 0 10px;
   text-align: center;
   cursor: pointer;
-  color: black;
+  color: var(--text);
   border-radius: 8px;
   padding: 4px;
   /*transition: background-color 0.3s;*/
 }
 
 .icon:hover { 
-  background-color: #ccc;
+  background-color: var(--hover);
 }
 
 .icon-image {
@@ -285,7 +427,7 @@ ul#minitabs a:hover {
   right: 0;
   bottom: 0;
   overflow: auto; /* Add scrollbars if content overflows */
-  background-color: #ffffff; /* Optional: Background color for visibility */
+  background-color: var(--canvas-bg); /* Optional: Background color for visibility */
   padding: 12px 8px 8px 8px; /* Padding to create the empty border effect */
 }
 
@@ -297,7 +439,7 @@ ul#minitabs a:hover {
   right: 0;
   bottom: 0;
   overflow: hidden; 
-  background-color: #ffffff; /* Optional: Background color for visibility */
+  background-color: var(--canvas-bg); /* Optional: Background color for visibility */
   padding: 0x; /* Padding to create the empty border effect */
   display: flex;
   flex-direction: row; /* Ensure columns are side by side */
@@ -311,7 +453,7 @@ ul#minitabs a:hover {
   right: 0;
   bottom: 0;
   overflow: none; 
-  background-color: #ffffff; /* Optional: Background color for visibility */
+  background-color: var(--canvas-bg); /* Optional: Background color for visibility */
   padding: 0; /* Padding to create the empty border effect */
   flex-direction: row; /* Ensure columns are side by side */
 }
@@ -331,7 +473,7 @@ ul#minitabs a:hover {
   right: 0;
   bottom: 0;
   overflow: auto; /* Add scrollbars if content overflows */
-  background-color: #ffffff; /* Optional: Background color for visibility */
+  background-color: var(--canvas-bg); /* Optional: Background color for visibility */
   padding: 0; /* Padding to create the empty border effect */
   flex-direction: row; /* Ensure columns are side by side */
 }
@@ -357,9 +499,16 @@ ul#minitabs a:hover {
   overflow: auto;
 }
 
-#left_col_inner {padding:10px; color:#000000}
+#left_col_inner {padding:10px; color: var(--text)}
 
-#right_col_inner {padding:10px; color:#000000;}
+#right_col_inner {padding:10px; color: var(--text);}
+
+/* Drawing (EDS) is clickable */
+#EDS,
+#EDS #EDSSVG,
+#EDS [data-eds-id] {
+  cursor: pointer;
+}
 
 /* TABLE */
 
@@ -391,6 +540,43 @@ table.html_edit_table td:nth-child(2) {
   padding-bottom: 2px;
 }
 
+/* Brief highlight when an element is clicked in the SVG drawing */
+table.html_edit_table.eds-tree-flash {
+  outline: 2px solid rgba(255, 170, 0, 0.95);
+  border-radius: 6px;
+  animation: edsTreeFlashPulse 2500ms ease-in-out 1;
+}
+
+table.html_edit_table.eds-tree-flash td:nth-child(2) {
+  background-color: rgba(255, 235, 120, 0.55);
+  transition: background-color 120ms ease-in-out;
+}
+
+html[data-theme="dark"] table.html_edit_table.eds-tree-flash td:nth-child(2) {
+  background-color: rgba(255, 210, 90, 0.22);
+}
+
+@keyframes edsTreeFlashPulse {
+  0%, 10% {
+    outline-color: rgba(255, 170, 0, 0.95);
+  }
+  20% {
+    outline-color: rgba(255, 170, 0, 0.0);
+  }
+  30% {
+    outline-color: rgba(255, 170, 0, 0.95);
+  }
+  40% {
+    outline-color: rgba(255, 170, 0, 0.0);
+  }
+  50% {
+    outline-color: rgba(255, 170, 0, 0.95);
+  }
+  60%, 100% {
+    outline-color: rgba(255, 170, 0, 0.0);
+  }
+}
+
 /* OTHER */
 
 #config {
@@ -403,6 +589,12 @@ table.html_edit_table td:nth-child(2) {
 #AJAX_sent {padding:0px; color:#000000;}
 #AJAX_received {padding:0px; color:#000000;}
 #AJAX_draw {padding:0px; color:#000000;}
+
+html[data-theme="dark"] #AJAX_sent,
+html[data-theme="dark"] #AJAX_received,
+html[data-theme="dark"] #AJAX_draw {
+  color: var(--text);
+}
 
 .onlypointer {
   cursor: pointer;
@@ -472,8 +664,8 @@ table {
 .context-menu {
   position: absolute;
   display: none;
-  border: 1px solid #aaa;
-  background-color: #f0f0f0;
+  border: 1px solid var(--border);
+  background-color: var(--context-bg);
   box-shadow: 0 2px 10px rgba(0,0,0,0.2);
   z-index: 999999999; /* Try to always be on top */
   font-size: 12px;
@@ -489,17 +681,17 @@ table {
 }
 
 .context-menu-item:hover {
-  background-color: #e0e0e0;
+  background-color: var(--context-hover);
 }
 
 .context-menu-shortcut {
   margin-left: 16px;
-  color: #888;
+  color: var(--muted-text);
 }
 
 .context-menu-separator {
   border: none;
-  border-top: 1px solid #ddd;
+  border-top: 1px solid var(--border);
   margin: 2px 0;
 }
 
@@ -522,16 +714,16 @@ table {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  background-color: white;
+  background-color: var(--popup-bg);
   padding: 5px 20px 20px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
   z-index: 1000000;
 }
 
 .popup h3 {
-  color: #06F;
+  color: var(--link);
 }
 
 .rounded-button {

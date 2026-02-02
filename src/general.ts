@@ -207,7 +207,7 @@ export async function showSelectPopup(
   });
 }
 
-function flattenSVG(SVGstruct,shiftx,shifty,node,overflowright=0) {
+function flattenSVG(SVGstruct,shiftx,shifty,node,overflowright=0, currentEdsId: string | null = null) {
 
   if (node==0) globalThis.structure.print_table.pagemarkers.clear();
   
@@ -219,6 +219,10 @@ function flattenSVG(SVGstruct,shiftx,shifty,node,overflowright=0) {
 
   var outstruct = SVGstruct;
   if (SVGstruct.localName == "svg") {
+    const idAttr = outstruct.attributes?.getNamedItem?.("data-eds-id");
+    if (idAttr && typeof idAttr.nodeValue === 'string' && idAttr.nodeValue !== '') {
+      currentEdsId = idAttr.nodeValue;
+    }
     if (outstruct.attributes.getNamedItem("newPage")) {
       forceNewPage = true;
     }
@@ -231,7 +235,7 @@ function flattenSVG(SVGstruct,shiftx,shifty,node,overflowright=0) {
       outstruct.attributes.getNamedItem("y").nodeValue = 0;
     }
     for (var i = 0; i < SVGstruct.children.length; i++) {
-      str = str.concat(flattenSVG(SVGstruct.children[i],shiftx,shifty,node+1),"\n");
+      str = str.concat(flattenSVG(SVGstruct.children[i],shiftx,shifty,node+1,overflowright,currentEdsId),"\n");
     }
     if (node <= 0) {
       if (outstruct.attributes.getNamedItem("width")) { // make SVG a 0,0 element
@@ -242,6 +246,13 @@ function flattenSVG(SVGstruct,shiftx,shifty,node,overflowright=0) {
       }
     }
   } else {
+    if (currentEdsId != null && currentEdsId !== '') {
+      try {
+        outstruct.setAttribute('data-eds-id', currentEdsId);
+      } catch (e) {
+        // ignore
+      }
+    }
     if (SVGstruct.localName == "line") {
       if (shiftx != 0) {
         outstruct.attributes.getNamedItem("x1").nodeValue = parseFloat(outstruct.attributes.getNamedItem("x1").nodeValue) + shiftx;
@@ -317,7 +328,7 @@ export function flattenSVGfromString(xmlstr, overflowright: number = 0) {
   var str:string = "";
   var parser = new DOMParser();
   var xmlDoc = parser.parseFromString(xmlstr, "text/xml"); //important to use "text/xml"
-  str = flattenSVG(xmlDoc.childNodes[0],0,0,0,overflowright);
+  str = flattenSVG(xmlDoc.childNodes[0],0,0,0,overflowright,null);
   return str;
 }
 
