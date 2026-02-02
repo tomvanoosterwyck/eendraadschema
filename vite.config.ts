@@ -1,5 +1,7 @@
 import { defineConfig } from "vite";
 import { viteSingleFile } from "vite-plugin-singlefile";
+import { cpSync, existsSync, mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 const formatDate = () => {
     const now = new Date();
@@ -35,11 +37,43 @@ export default defineConfig({
             external: [
                 "prop/prop_scripts_js.js",
                 "builddate.js",
-                "pako/pako.min.js",
-                "jsPDF/jspdf.umd.min.js",
-                "jsPDF/print.js"
+                "resources/pako/pako.min.js",
+                "resources/jsPDF/jspdf.umd.min.js",
+                "resources/jsPDF/print.js"
             ]
         }
     },
-    plugins: [viteSingleFile()]
+    plugins: [
+        viteSingleFile(),
+        {
+            name: 'copy-static-runtime-assets',
+            apply: 'build',
+            closeBundle() {
+                const projectRoot = process.cwd();
+                const distRoot = resolve(projectRoot, 'dist');
+
+                const ensureDir = (absDir: string) => {
+                    if (!existsSync(absDir)) mkdirSync(absDir, { recursive: true });
+                };
+
+                const copyPath = (srcRel: string, destRel: string = srcRel) => {
+                    const srcAbs = resolve(projectRoot, srcRel);
+                    const destAbs = resolve(distRoot, destRel);
+                    if (!existsSync(srcAbs)) return;
+                    ensureDir(dirname(destAbs));
+                    cpSync(srcAbs, destAbs, { recursive: true, force: true });
+                };
+
+                // Files referenced at runtime by HTML/JS.
+                copyPath('license.html');
+
+                // Runtime static assets referenced by <img>, window.open, and external scripts.
+                copyPath('gif');
+                copyPath('examples');
+                copyPath('resources');
+                copyPath('prop');
+                copyPath('Documentation');
+            }
+        }
+    ]
 });
