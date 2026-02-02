@@ -1,5 +1,5 @@
 export class ContextMenu {
-    private menuItems: { label: string, shortcut?: string, callback: () => void }[] = [];
+    private menuItems: { label: string, shortcut?: string, callback?: (() => void) | null, disabled?: boolean, hint?: boolean }[] = [];
     private menuElement: HTMLElement | null = null;
 
     /**
@@ -28,8 +28,14 @@ export class ContextMenu {
      * @param callback - De functie die wordt aangeroepen bij het klikken op het menu-item.
      * @param shortcut - De optionele sneltoets voor het menu-item.
      */
-    addMenuItem(label: string, callback: () => void, shortcut?: string): void {
-        this.menuItems.push({ label, shortcut, callback });
+    addMenuItem(label: string, callback?: (() => void) | null, shortcut?: string, options?: { disabled?: boolean, hint?: boolean }): void {
+        this.menuItems.push({
+            label,
+            shortcut,
+            callback,
+            disabled: options?.disabled ?? false,
+            hint: options?.hint ?? false
+        });
     }
 
     /**
@@ -53,6 +59,8 @@ export class ContextMenu {
                 } else {
                     const menuItem = document.createElement('div');
                     menuItem.className = 'context-menu-item';
+                    if (item.disabled || item.callback == null) menuItem.classList.add('context-menu-item-disabled');
+                    if (item.hint) menuItem.classList.add('context-menu-item-hint');
 
                     const labelElement = document.createElement('span');
                     labelElement.textContent = item.label;
@@ -64,10 +72,12 @@ export class ContextMenu {
                     menuItem.appendChild(labelElement);
                     menuItem.appendChild(shortcutElement);
 
-                    menuItem.addEventListener('click', () => {
-                        item.callback();
-                        this.hide();
-                    });
+                    if (!(item.disabled || item.callback == null)) {
+                        menuItem.addEventListener('click', () => {
+                            item.callback?.();
+                            this.hide();
+                        });
+                    }
 
                     this.menuElement.appendChild(menuItem);
                 }

@@ -612,6 +612,162 @@ export class Hierarchical_List {
         this.reSort();
     }
 
+    /** Clone an element (including its subtree) as a sibling of another element.
+     *
+     * This is used by the EDS drawing context menu for "Paste left/right".
+     * The clone is inserted on the same level as targetId.
+     *
+     * @param sourceId - The element id to clone.
+     * @param targetId - The sibling id relative to which we insert.
+     * @param where - 'before' inserts before targetId, 'after' inserts after targetId.
+     * @returns The id of the newly created clone, or null if not possible.
+     */
+    cloneRelativeToId(sourceId: number, targetId: number, where: 'before' | 'after'): number | null {
+
+        const sourceOrdinal = this.getOrdinalById(sourceId);
+        const targetOrdinal = this.getOrdinalById(targetId);
+        if (sourceOrdinal === null || targetOrdinal === null) return null;
+
+        const sourceItem = this.data[sourceOrdinal] as Electro_Item;
+        if (sourceItem == null) return null;
+
+        // Create a clone of the item itself.
+        const my_item = this.createItem((sourceItem as Electro_Item).getType());
+        my_item.clone(this.data[sourceOrdinal]);
+
+        // Insert as sibling relative to target.
+        if (where === 'before') {
+            this.insertItemBeforeId(my_item, targetId);
+        } else {
+            this.insertItemAfterId(my_item, targetId);
+        }
+
+        const new_id = this.curid - 1;
+
+        const newOrdinal = this.getOrdinalById(new_id);
+        if (newOrdinal !== null) {
+            this.data[newOrdinal].collapsed = this.data[sourceOrdinal].collapsed;
+        }
+
+        // Clone the subtree: children of source become children of the new element.
+        let toClone: number[] = [];
+        for (let i = this.length - 1; i >= 0; i--) {
+            if (this.data[i].parent === sourceId) toClone.push(this.id[i]);
+        }
+        for (let i = 0; i < toClone.length; i++) {
+            this.clone(toClone[i], new_id);
+        }
+
+        this.reSort();
+        return new_id;
+    }
+
+    /** Move an existing element (including its subtree) relative to another element.
+     *
+     * Primarily used for drag & drop reordering in the HTML tree.
+     *
+     * @param sourceId - The element id to move.
+     * @param targetId - The element id that acts as insertion reference.
+     * @param where - Insert 'before' or 'after' the target subtree.
+     * @param asChild - When true, move sourceId to become a child of targetId.
+     */
+    moveSubtreeRelativeToId(sourceId: number, targetId: number, where: 'before' | 'after', asChild: boolean = false): boolean {
+        if (sourceId === targetId) return false;
+
+        // Ensure ordinals are up-to-date
+        this.idToOrdinalMap = null;
+
+        const sourceOrdinal = this.getOrdinalById(sourceId);
+        const targetOrdinal = this.getOrdinalById(targetId);
+        if (sourceOrdinal === null || targetOrdinal === null) return false;
+
+        const sourceIndent = this.data[sourceOrdinal]?.indent ?? 0;
+
+        // Determine contiguous subtree range by indent.
+        let endExclusive = sourceOrdinal + 1;
+        while (endExclusive < this.length) {
+            const ind = this.data[endExclusive]?.indent ?? 0;
+            if (ind <= sourceIndent) break;
+            endExclusive++;
+        }
+
+        // Prevent dropping onto own subtree.
+        for (let i = sourceOrdinal; i < endExclusive; i++) {
+            if (this.id[i] === targetId) return false;
+        }
+
+        // Extract subtree segment.
+        const segData = this.data.splice(sourceOrdinal, endExclusive - sourceOrdinal);
+        const segActive = this.active.splice(sourceOrdinal, endExclusive - sourceOrdinal);
+        const segId = this.id.splice(sourceOrdinal, endExclusive - sourceOrdinal);
+
+        // Recompute target ordinal after removal.
+        this.idToOrdinalMap = null;
+        const newTargetOrdinal = this.getOrdinalById(targetId);
+        if (newTargetOrdinal === null) {
+            // Put it back (best effort).
+            this.data.splice(sourceOrdinal, 0, ...segData);
+            this.active.splice(sourceOrdinal, 0, ...segActive);
+            this.id.splice(sourceOrdinal, 0, ...segId);
+            this.idToOrdinalMap = null;
+            return false;
+        }
+
+        // Compute insertion index as before/after the *target subtree*.
+        const targetIndent = this.data[newTargetOrdinal]?.indent ?? 0;
+        let targetEnd = newTargetOrdinal + 1;
+        while (targetEnd < this.length) {
+            const ind = this.data[targetEnd]?.indent ?? 0;
+            if (ind <= targetIndent) break;
+            targetEnd++;
+        }
+        const insertIndex = (where === 'before') ? newTargetOrdinal : targetEnd;
+
+        // Adjust parent/indent if needed.
+        const oldRootIndent = segData[0]?.indent ?? 0;
+        let newRootIndent = oldRootIndent;
+        let newRootParent = segData[0]?.parent ?? 0;
+
+        if (asChild) {
+            newRootParent = targetId;
+            newRootIndent = (this.data[newTargetOrdinal]?.indent ?? 0) + 1;
+
+            // Enforce max children when changing parent.
+            const currentParent = segData[0]?.parent ?? 0;
+            if (currentParent !== newRootParent) {
+                const p = this.getElectroItemById(newRootParent) as any;
+                if (p && typeof p.checkInsertChild === 'function') {
+                    if (!p.checkInsertChild()) {
+                        // Put it back unchanged.
+                        this.data.splice(sourceOrdinal, 0, ...segData);
+                        this.active.splice(sourceOrdinal, 0, ...segActive);
+                        this.id.splice(sourceOrdinal, 0, ...segId);
+                        this.idToOrdinalMap = null;
+                        return false;
+                    }
+                }
+            }
+        } else {
+            newRootParent = this.data[newTargetOrdinal]?.parent ?? 0;
+            newRootIndent = this.data[newTargetOrdinal]?.indent ?? 0;
+        }
+
+        const deltaIndent = newRootIndent - oldRootIndent;
+        for (let i = 0; i < segData.length; i++) {
+            segData[i].indent = (segData[i].indent ?? 0) + deltaIndent;
+        }
+        segData[0].parent = newRootParent;
+
+        // Insert subtree back.
+        this.data.splice(insertIndex, 0, ...segData);
+        this.active.splice(insertIndex, 0, ...segActive);
+        this.id.splice(insertIndex, 0, ...segId);
+
+        this.idToOrdinalMap = null;
+        this.reSort();
+        return true;
+    }
+
     // -- Delete item with id = my_id --
 
     deleteById(my_id: number) {
@@ -750,11 +906,27 @@ export class Hierarchical_List {
                 output+= `
                         <div style="color:black;font-size:12px"><i>
                             Gebruik de <b>blauwe</b> pijlen om de volgorde van elementen te wijzigen.<br>
+                        U kan ook slepen in de boomstructuur via het <b>⋮⋮</b>-handvat.<br>
                             Gebruik het <u>Moeder</u>-veld om een component elders in het schema te hangen.<br>
                             Kies "<b>clone</b>" om een dubbel te maken van een element.
                         </i></div>`;
                 break;
         }
+
+        // Compact tree + modal editing toggle
+        const modalChecked = (globalThis as any).treeEditInModal === true ? 'checked' : '';
+        output += `
+            <span style="display: inline-block; width: 30px;"></span>
+            <div>
+                Boom
+                <div style="font-size:12px">
+                    <label style="cursor:pointer">
+                        <input id="hl_tree_edit_in_modal" type="checkbox" ${modalChecked} onchange="HL_toggleTreeEditModal()">
+                        Bewerk in venster
+                    </label>
+                </div>
+            </div>
+        `;
         output += '</p>';
 
         if (globalThis.autoSaver && globalThis.autoSaver.hasChangesSinceLastManualSave()) {
@@ -791,15 +963,115 @@ export class Hierarchical_List {
     // -- Functie om de tree links te tekenen te starten by node met id = myParent --
 
     toHTMLinner(ordinal: number) {
+        const dragHandle = (this.mode === "move")
+            ? `<span class="tree-drag-handle" draggable="true" title="Sleep om te verplaatsen">⋮⋮</span>`
+            : "";
+
+        const useModal = (globalThis as any).treeEditInModal === true;
+        const item = this.data[ordinal] as Electro_Item;
+        const itemType = trimString(item?.getType?.() ?? "");
+
+        const buildCompactLabelText = (): string => {
+            const props: any = (item as any)?.props ?? {};
+            const safeType = itemType !== "" ? itemType : "Element";
+            const readableAdres = trimString(item?.getReadableAdres?.() ?? "");
+            const naam = trimString(props.naam ?? "");
+            const adres = trimString(props.adres ?? "");
+
+            if (safeType === "Bord") {
+                return naam !== "" ? `Bord ${naam}` : "Bord";
+            }
+
+            if (safeType === "Kring") {
+                const kringNaam = (naam === "---") ? "" : naam;
+
+                const bescherming = trimString(props.bescherming ?? "");
+                const amperage = trimString(props.amperage ?? "");
+                const polen = trimString(props.aantal_polen ?? "");
+                const curve = trimString(props.curve_automaat ?? "");
+                const delta = trimString(props.differentieel_delta_amperage ?? "");
+
+                let label = kringNaam !== "" ? `Kring ${kringNaam}` : "Kring";
+
+                let prot = "";
+                if (bescherming !== "" && bescherming !== "geen") {
+                    prot = bescherming;
+                    if (bescherming === "automatisch" && curve !== "") prot += ` ${curve}`;
+                    if (polen !== "") prot = `${polen}P ${prot}`;
+                    if (amperage !== "") prot += ` ${amperage}A`;
+                    if ((bescherming === "differentieel" || bescherming === "differentieelautomaat") && delta !== "") {
+                        prot += ` Δ${delta}mA`;
+                    }
+                } else if (bescherming === "geen") {
+                    prot = "geen beveiliging";
+                }
+
+                if (prot !== "") label += ` — ${prot}`;
+                if (adres !== "") label += ` — @ ${adres}`;
+                return label;
+            }
+
+            if (safeType === "Zekering/differentieel") {
+                const bescherming = trimString(props.bescherming ?? "");
+                const amperage = trimString(props.amperage ?? "");
+                const polen = trimString(props.aantal_polen ?? "");
+                const curve = trimString(props.curve_automaat ?? "");
+                const delta = trimString(props.differentieel_delta_amperage ?? "");
+
+                let label = readableAdres !== "" ? `Zekering ${readableAdres}` : "Zekering";
+                let prot = "";
+                if (bescherming !== "") {
+                    prot = bescherming;
+                    if (bescherming === "automatisch" && curve !== "") prot += ` ${curve}`;
+                    if (polen !== "") prot = `${polen}P ${prot}`;
+                    if (amperage !== "") prot += ` ${amperage}A`;
+                    if ((bescherming === "differentieel" || bescherming === "differentieelautomaat") && delta !== "") {
+                        prot += ` Δ${delta}mA`;
+                    }
+                }
+                if (prot !== "") label += ` — ${prot}`;
+                return label;
+            }
+
+            // Default: type + readable address (kring.nr), plus optional name/address fields.
+            let label = readableAdres !== "" ? `${safeType} ${readableAdres}` : safeType;
+            if (naam !== "") label += ` — ${naam}`;
+            if (adres !== "") label += ` — @ ${adres}`;
+            return label;
+        };
+
+        const compactLabel = htmlspecialchars(buildCompactLabelText());
+        let quickActions = "";
+        if (useModal) {
+            const id = this.data[ordinal].id;
+            let out = "";
+            if (this.mode !== "move") {
+                if (item?.checkInsertSibling?.()) {
+                    out += `<button class="button-insertBefore" onclick="HLInsertBefore(${id})"></button>`;
+                    out += `<button class="button-insertAfter" onclick="HLInsertAfter(${id})"></button>`;
+                }
+                if (item?.checkInsertChild?.()) {
+                    out += `<button class="button-insertChild" onclick="HLInsertChild(${id})"></button>`;
+                }
+            }
+            out += `<button class="button-delete-garbage-can" onclick="HLDelete(${id})"></button>`;
+            out += "&nbsp;";
+            quickActions = `<span class="hl-quick-actions">${out}</span>`;
+        }
+
+        const compactBody = useModal
+            ? `${quickActions}<span class="hl-open-modal-label" data-hl-open-id="${this.data[ordinal].id}" title="Klik om te bewerken">${compactLabel}</span>`
+            : `${this.data[ordinal].toHTML(this.mode)}`;
+
         if (this.data[ordinal].collapsed) {
             return(`<tr>
-                        <td bgcolor="#8AB2E4" onclick="HLCollapseExpand(${this.data[ordinal].id})" valign= "top">&#x229E;</td>
-                        <td width="100%">${this.data[ordinal].toHTML(this.mode)}<br></td>
+                        <td class="hl-collapse-cell" bgcolor="#8AB2E4" onclick="HLCollapseExpand(${this.data[ordinal].id})" valign= "top"><span class="hl-collapse-icon">&#x229E;</span></td>
+                        <td width="100%">${dragHandle}${compactBody}<br></td>
                     </tr>`);
         } else {
             return(`<tr>
-                       <td bgcolor="C0C0C0" onclick="HLCollapseExpand(${this.data[ordinal].id})" valign= "top">&#x229F;</td>
-                       <td width="100%">${this.data[ordinal].toHTML(this.mode)}<br>${this.toHTML(this.id[ordinal])}</td>
+                       <td class="hl-collapse-cell" bgcolor="C0C0C0" onclick="HLCollapseExpand(${this.data[ordinal].id})" valign= "top"><span class="hl-collapse-icon">&#x229F;</span></td>
+                       <td width="100%">${dragHandle}${compactBody}<br>${this.toHTML(this.id[ordinal])}</td>
                     </tr>`);
         }
     }
@@ -913,7 +1185,7 @@ export class Hierarchical_List {
                 const electroItemType = (this.data[i] as Electro_Item).getType();
                 if (electroItemType == "Container") continue; // We tekenen de container niet zelf
                 if (electroItemType != null && electroItemType == "Kring") aantalKringen++;
-                output += '<table class="html_edit_table" id="id_elem_' + this.id[i]  + '">';
+                output += '<table class="html_edit_table" id="id_elem_' + this.id[i]  + '" data-hl-id="' + this.id[i] + '" draggable="' + (this.mode === 'move' ? 'true' : 'false') + '">';
                 output += this.toHTMLinner(i);
                 output += "</table>";
             }

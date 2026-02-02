@@ -490,12 +490,12 @@ ul#minitabs li.menu-item-right {
 }
 
 #left_col {
-  flex: 0.45;
+  flex: 0.35;
   overflow: auto;
 }
 
 #right_col {
-  flex: 0.55;
+  flex: 0.65;
   overflow: auto;
 }
 
@@ -507,6 +507,13 @@ ul#minitabs li.menu-item-right {
 #EDS,
 #EDS #EDSSVG,
 #EDS [data-eds-id] {
+  cursor: default;
+}
+
+/* Only show clickable cursor while Ctrl/Cmd is held */
+html.eds-modifier-active #EDS,
+html.eds-modifier-active #EDS #EDSSVG,
+html.eds-modifier-active #EDS [data-eds-id] {
   cursor: pointer;
 }
 
@@ -550,6 +557,112 @@ table.html_edit_table.eds-tree-flash {
 table.html_edit_table.eds-tree-flash td:nth-child(2) {
   background-color: rgba(255, 235, 120, 0.55);
   transition: background-color 120ms ease-in-out;
+}
+
+table.html_edit_table.tree-dragging {
+  opacity: 0.45;
+}
+
+table.html_edit_table.tree-drop-before {
+  box-shadow: inset 0 3px 0 0 rgba(0, 120, 212, 0.9);
+}
+
+table.html_edit_table.tree-drop-after {
+  box-shadow: inset 0 -3px 0 0 rgba(0, 120, 212, 0.9);
+}
+
+.tree-drag-handle {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(0, 120, 212, 0.12);
+  color: rgba(0, 60, 120, 0.95);
+  font-weight: 700;
+  user-select: none;
+  cursor: grab;
+}
+
+table.html_edit_table.tree-dragging .tree-drag-handle {
+  cursor: grabbing;
+}
+
+table.html_edit_table td.hl-collapse-cell {
+  width: 16px;
+  min-width: 16px;
+  max-width: 16px;
+  padding: 3px 1px 0 1px;
+  text-align: center;
+  vertical-align: top;
+  font-size: 11px;
+  line-height: 1.1;
+}
+
+table.html_edit_table td.hl-collapse-cell .hl-collapse-icon {
+  position: relative;
+  top: 1px;
+  display: inline-block;
+}
+
+.hl-open-modal-label {
+  cursor: pointer;
+  color: var(--text);
+}
+
+.hl-open-modal-label:hover {
+  text-decoration: underline;
+}
+
+.hl-quick-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 4px;
+}
+
+.eds-tree-modal {
+  width: min(980px, 94vw);
+  max-height: 88vh;
+  overflow: hidden;
+  padding: 10px 14px 14px;
+}
+
+.eds-tree-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.eds-tree-modal-title {
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.eds-tree-modal-close {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 28px;
+}
+
+.eds-tree-modal-close:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.eds-tree-modal-body {
+  max-height: calc(88vh - 64px);
+  overflow: auto;
+  padding-right: 6px;
 }
 
 html[data-theme="dark"] table.html_edit_table.eds-tree-flash td:nth-child(2) {
@@ -680,6 +793,14 @@ table {
   align-items: center;
 }
 
+.context-menu-item-disabled {
+  cursor: default;
+}
+
+.context-menu-item-disabled:hover {
+  background-color: transparent;
+}
+
 .context-menu-item:hover {
   background-color: var(--context-hover);
 }
@@ -687,6 +808,22 @@ table {
 .context-menu-shortcut {
   margin-left: 16px;
   color: var(--muted-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 11px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-color: color-mix(in srgb, var(--context-bg) 85%, white 15%);
+}
+
+.context-menu-item-hint {
+  color: var(--muted-text);
+}
+
+.context-menu-item-hint .context-menu-shortcut {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--border) 50%, #ffb300 50%);
+  background-color: rgba(255, 210, 90, 0.35);
 }
 
 .context-menu-separator {

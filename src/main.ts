@@ -6,6 +6,7 @@ import { showFilePage } from "./importExport/importExport";
 import { EDStoStructure } from "./importExport/importExport";
 import { AutoSaver } from "./importExport/AutoSaver";
 import { showSituationPlanPage } from "./sitplan/SituationPlanView";
+import { ContextMenu } from "./sitplan/ContextMenu";
 import { printsvg } from "./print/print";
 import { PROP_edit_menu } from "../prop/prop_scripts";
 import { CookieBanner } from "../prop/CookieBanner";
@@ -38,6 +39,9 @@ globalThis.session = new Session();
 globalThis.appDocStorage = new MultiLevelStorage<any>('appDocStorage', {});
 globalThis.undostruct = new undoRedo(100);
 globalThis.fileAPIobj = new importExportUsingFileAPI();
+
+// When enabled, the hierarchical tree becomes compact and item editing happens in a modal.
+globalThis.treeEditInModal = true;
 
 // Global constants
 
@@ -165,6 +169,114 @@ globalThis.HLCollapseExpand = (my_id: number, state?: Boolean) => {
     }
 }
 
+function closeTreeItemModal() {
+    const overlay = document.getElementById('edsTreeModalOverlay');
+    if (overlay && overlay.parentElement) {
+        overlay.parentElement.removeChild(overlay);
+    }
+    document.body.style.pointerEvents = 'auto';
+    (globalThis as any)._edsTreeModalOpenId = null;
+}
+
+function openTreeItemModal(my_id: number) {
+    // Only relevant when modal editing is enabled.
+    if (globalThis.treeEditInModal !== true) return;
+
+    const electroItem = globalThis.structure.getElectroItemById(my_id);
+    if (electroItem === null) return;
+
+    closeTreeItemModal();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'edsTreeModalOverlay';
+    overlay.classList.add('popup-overlay', 'eds-tree-modal-overlay');
+
+    const popup = document.createElement('div');
+    popup.classList.add('popup', 'eds-tree-modal');
+
+    const title = `${trimString(electroItem.getType()) || 'Element'} — ${trimString(electroItem.getReadableAdres()) || `ID ${my_id}`}`;
+    popup.innerHTML = `
+        <div class="eds-tree-modal-header">
+            <div class="eds-tree-modal-title">${title}</div>
+            <button type="button" class="eds-tree-modal-close" title="Sluiten">×</button>
+        </div>
+        <div class="eds-tree-modal-body">
+            ${electroItem.toHTML(globalThis.structure.mode)}
+        </div>
+    `;
+
+    overlay.appendChild(popup);
+    document.body.appendChild(overlay);
+
+    overlay.style.visibility = 'visible';
+    document.body.style.pointerEvents = 'none';
+    overlay.style.pointerEvents = 'auto';
+
+    (globalThis as any)._edsTreeModalOpenId = my_id;
+
+    const closeButton = popup.querySelector('.eds-tree-modal-close') as HTMLButtonElement | null;
+    closeButton?.addEventListener('click', () => closeTreeItemModal());
+
+    // Enable editing: reuse the same HL_edit_* change handler as the tree view.
+    popup.addEventListener('change', (ev: Event) => {
+        handleHlEditChange(ev.target);
+
+        // If the type changed, rebuild the modal content to match the new element UI.
+        const t = ev.target as any;
+        if (t && typeof t.id === 'string' && /_type$/.test(t.id)) {
+            const openId = (globalThis as any)._edsTreeModalOpenId as number | null;
+            if (openId != null && openId === my_id) {
+                openTreeItemModal(my_id);
+            }
+        }
+    });
+
+    overlay.addEventListener('mousedown', (ev: MouseEvent) => {
+        if (ev.target === overlay) closeTreeItemModal();
+    });
+
+    window.addEventListener('keydown', function onKeyDown(ev: KeyboardEvent) {
+        if (ev.key === 'Escape') {
+            window.removeEventListener('keydown', onKeyDown);
+            closeTreeItemModal();
+        }
+    });
+}
+
+function setupTreeModalEditing(leftColInner: HTMLElement) {
+    if ((leftColInner as any)._treeModalEditingBound === true) return;
+    (leftColInner as any)._treeModalEditingBound = true;
+
+    leftColInner.addEventListener('click', (ev: MouseEvent) => {
+        if (globalThis.treeEditInModal !== true) return;
+
+        const target = ev.target as Element | null;
+        if (target == null) return;
+
+        // Ignore clicks on controls.
+        const tag = (target as HTMLElement).tagName;
+        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'BUTTON') return;
+        if (target.closest('.hl-collapse-cell')) return;
+        if (target.closest('.tree-drag-handle')) return;
+
+        const openIdAttr = target.closest('[data-hl-open-id]')?.getAttribute('data-hl-open-id');
+        let id: number | null = null;
+        if (openIdAttr != null) {
+            const parsed = Number(openIdAttr);
+            if (Number.isFinite(parsed) && parsed > 0) id = parsed;
+        }
+        if (id == null) {
+            const table = target.closest('table.html_edit_table[data-hl-id]') as HTMLElement | null;
+            const idStr = table?.getAttribute('data-hl-id');
+            const parsed = idStr != null ? Number(idStr) : NaN;
+            if (Number.isFinite(parsed) && parsed > 0) id = parsed;
+        }
+        if (id == null) return;
+
+        openTreeItemModal(id);
+    });
+}
+
 globalThis.HLDelete = (my_id: number) => {
     const electroItem = globalThis.structure.getElectroItemById(my_id);
     if (electroItem === null) return;
@@ -172,6 +284,10 @@ globalThis.HLDelete = (my_id: number) => {
     
     globalThis.structure.deleteById(my_id);
     globalThis.undostruct.store();
+
+    if ((globalThis as any)._edsTreeModalOpenId === my_id) {
+        closeTreeItemModal();
+    }
     
     if ((parent !== null) && (!isFirefox())) {
         globalThis.structure.reNumber();
@@ -194,6 +310,7 @@ globalThis.HLInsertBefore = (my_id: number) => {
     if (electroItem === null) return;
     const parent = electroItem.getParent();
 
+    const newId = globalThis.structure.curid;
     globalThis.structure.insertItemBeforeId(new Electro_Item(globalThis.structure), my_id);
     globalThis.undostruct.store();
 
@@ -204,6 +321,10 @@ globalThis.HLInsertBefore = (my_id: number) => {
     } else {
         globalThis.HLRedrawTree();
     }
+
+    if (globalThis.treeEditInModal === true && globalThis.structure.curid !== newId) {
+        openTreeItemModal(newId);
+    }
 }
 
 globalThis.HLInsertAfter = (my_id: number) => {
@@ -211,6 +332,7 @@ globalThis.HLInsertAfter = (my_id: number) => {
     if (electroItem === null) return;
     const parent = electroItem.getParent();
 
+    const newId = globalThis.structure.curid;
     globalThis.structure.insertItemAfterId(new Electro_Item(globalThis.structure), my_id);
     globalThis.undostruct.store();
 
@@ -220,6 +342,10 @@ globalThis.HLInsertAfter = (my_id: number) => {
         globalThis.HLRedrawTreeSVG();
     } else {
         globalThis.HLRedrawTree();
+    }
+
+    if (globalThis.treeEditInModal === true && globalThis.structure.curid !== newId) {
+        openTreeItemModal(newId);
     }
 }
 
@@ -275,15 +401,27 @@ globalThis.HLClone = (my_id: number) => {
 }
 
 globalThis.HLInsertChild = (my_id: number) => {
+    const newId = globalThis.structure.curid;
     globalThis.structure.insertChildAfterId(new Electro_Item(globalThis.structure), my_id);
     globalThis.structure.reNumber();
     //globalThis.undostruct.store();  We should not call this as the CollapseExpand already does that
     globalThis.HLCollapseExpand(my_id, false);
     //No need to call HLRedrawTree as HLCollapseExpand already does that
+
+    if (globalThis.treeEditInModal === true && globalThis.structure.curid !== newId) {
+        openTreeItemModal(newId);
+    }
 }
 
 globalThis.HL_editmode = () => {
     globalThis.structure.mode = (document.getElementById("edit_mode") as HTMLInputElement).value;
+    globalThis.HLRedrawTreeHTML();
+}
+
+globalThis.HL_toggleTreeEditModal = () => {
+    const el = document.getElementById('hl_tree_edit_in_modal') as HTMLInputElement | null;
+    globalThis.treeEditInModal = el?.checked === true;
+    closeTreeItemModal();
     globalThis.HLRedrawTreeHTML();
 }
 
@@ -368,13 +506,148 @@ globalThis.HLRedrawTreeHTML = () => {
     if (settings !== null) settings.innerHTML = "";
     var output:string = globalThis.structure.toHTML(0) + "<br>" + renderAddressStacked();
     const left_col_inner = document.getElementById("left_col_inner");
-    if (left_col_inner !== null) left_col_inner.innerHTML = output;
+    if (left_col_inner !== null) {
+        left_col_inner.innerHTML = output;
+        setupTreeDragAndDrop(left_col_inner);
+        setupTreeModalEditing(left_col_inner);
+    }
 }
 
 globalThis.HLRedrawTreeHTMLLight = () => {
     var output:string = globalThis.structure.toHTML(0) + "<br>" + renderAddressStacked();
     const left_col_inner = document.getElementById("left_col_inner");
-    if (left_col_inner !== null) left_col_inner.innerHTML = output;
+    if (left_col_inner !== null) {
+        left_col_inner.innerHTML = output;
+        setupTreeDragAndDrop(left_col_inner);
+        setupTreeModalEditing(left_col_inner);
+    }
+}
+
+function setupTreeDragAndDrop(leftColInner: HTMLElement) {
+    if ((leftColInner as any)._treeDragDropBound === true) return;
+    (leftColInner as any)._treeDragDropBound = true;
+
+    let draggedId: number | null = null;
+    let lastOverTable: HTMLElement | null = null;
+    let lastOverWhere: 'before' | 'after' | null = null;
+
+    const clearDropMarker = () => {
+        if (lastOverTable != null) {
+            lastOverTable.classList.remove('tree-drop-before', 'tree-drop-after');
+        }
+        lastOverTable = null;
+        lastOverWhere = null;
+    }
+
+    leftColInner.addEventListener('dragstart', (ev: DragEvent) => {
+        // Only allow drag-reorder in move mode.
+        if (globalThis.structure.mode !== 'move') {
+            ev.preventDefault();
+            return;
+        }
+
+        const target = ev.target as Element | null;
+        if (target == null) return;
+
+        // Don't start dragging from interactive controls.
+        const tag = (target as HTMLElement).tagName;
+        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'BUTTON') {
+            ev.preventDefault();
+            return;
+        }
+
+        const table = target.closest('table.html_edit_table[data-hl-id][draggable="true"]') as HTMLElement | null;
+        if (table == null) return;
+
+        const idStr = table.getAttribute('data-hl-id');
+        const id = idStr != null ? Number(idStr) : NaN;
+        if (!Number.isFinite(id) || id <= 0) return;
+
+        draggedId = id;
+        table.classList.add('tree-dragging');
+
+        if (ev.dataTransfer) {
+            ev.dataTransfer.setData('text/plain', String(id));
+            ev.dataTransfer.effectAllowed = 'move';
+        }
+    });
+
+    leftColInner.addEventListener('dragend', () => {
+        const tables = leftColInner.querySelectorAll('table.html_edit_table.tree-dragging');
+        for (let i = 0; i < tables.length; i++) {
+            (tables[i] as HTMLElement).classList.remove('tree-dragging');
+        }
+        draggedId = null;
+        clearDropMarker();
+    });
+
+    leftColInner.addEventListener('dragover', (ev: DragEvent) => {
+        if (globalThis.structure.mode !== 'move') return;
+        if (draggedId == null) return;
+
+        const target = ev.target as Element | null;
+        if (target == null) return;
+
+        const table = target.closest('table.html_edit_table[data-hl-id][draggable="true"]') as HTMLElement | null;
+        if (table == null) {
+            clearDropMarker();
+            return;
+        }
+
+        const idStr = table.getAttribute('data-hl-id');
+        const overId = idStr != null ? Number(idStr) : NaN;
+        if (!Number.isFinite(overId) || overId <= 0) return;
+        if (overId === draggedId) {
+            clearDropMarker();
+            return;
+        }
+
+        ev.preventDefault();
+        if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+
+        const rect = table.getBoundingClientRect();
+        const where: 'before' | 'after' = (ev.clientY < rect.top + rect.height / 2) ? 'before' : 'after';
+
+        if (lastOverTable !== table || lastOverWhere !== where) {
+            clearDropMarker();
+            lastOverTable = table;
+            lastOverWhere = where;
+            table.classList.add(where === 'before' ? 'tree-drop-before' : 'tree-drop-after');
+        }
+    });
+
+    leftColInner.addEventListener('drop', (ev: DragEvent) => {
+        if (globalThis.structure.mode !== 'move') return;
+
+        const target = ev.target as Element | null;
+        if (target == null) return;
+
+        const table = target.closest('table.html_edit_table[data-hl-id][draggable="true"]') as HTMLElement | null;
+        if (table == null) return;
+
+        const idStr = table.getAttribute('data-hl-id');
+        const targetId = idStr != null ? Number(idStr) : NaN;
+        if (!Number.isFinite(targetId) || targetId <= 0) return;
+
+        const dt = ev.dataTransfer?.getData('text/plain');
+        const sourceId = dt != null && dt !== '' ? Number(dt) : draggedId;
+        if (sourceId == null || !Number.isFinite(sourceId) || sourceId <= 0) return;
+        if (sourceId === targetId) return;
+
+        ev.preventDefault();
+
+        const rect = table.getBoundingClientRect();
+        const where: 'before' | 'after' = (ev.clientY < rect.top + rect.height / 2) ? 'before' : 'after';
+
+        const moved = globalThis.structure.moveSubtreeRelativeToId(sourceId, targetId, where, false);
+        clearDropMarker();
+        draggedId = null;
+
+        if (!moved) return;
+        globalThis.undostruct.store();
+        globalThis.HLRedrawTree();
+        flashTreeViewItemById(sourceId);
+    });
 }
 
 globalThis.HLRedrawTreeSVG = () => {
@@ -496,6 +769,18 @@ function setupEdsClickToTreeFlash() {
     if ((right_col_inner as any)._edsClickToTreeFlashBound === true) return;
     (right_col_inner as any)._edsClickToTreeFlashBound = true;
 
+    // Toggle cursor feedback when Ctrl/Cmd is held.
+    if ((window as any)._edsModifierKeyBound !== true) {
+        (window as any)._edsModifierKeyBound = true;
+        const updateModifierClass = (e: KeyboardEvent | null) => {
+            const active = !!(e && (e.ctrlKey || e.metaKey));
+            document.documentElement.classList.toggle('eds-modifier-active', active);
+        };
+        window.addEventListener('keydown', (e) => updateModifierClass(e));
+        window.addEventListener('keyup', (e) => updateModifierClass(e));
+        window.addEventListener('blur', () => document.documentElement.classList.remove('eds-modifier-active'));
+    }
+
     right_col_inner.addEventListener('click', (ev: MouseEvent) => {
         const target = ev.target as Element | null;
         if (target == null) return;
@@ -509,8 +794,129 @@ function setupEdsClickToTreeFlash() {
         const id = getEdsIdFromClickEvent(ev, target, edsContainer);
         if (id == null) return;
 
-        flashTreeViewItemById(id);
+        // Ctrl/Cmd-click: highlight in tree.
+        if (ev.ctrlKey || ev.metaKey) {
+            flashTreeViewItemById(id);
+            return;
+        }
+
+        // Normal click: open modal editor (when enabled).
+        if (globalThis.treeEditInModal === true) {
+            openTreeItemModal(id);
+        }
     });
+
+    setupEdsRightClickCopyPaste(right_col_inner);
+}
+
+let edsClipboardId: number | null = null;
+let edsContextMenu: ContextMenu | null = null;
+
+function isEdsCopyPasteCandidate(electroItem: Electro_Item | null): boolean {
+    if (electroItem == null) return false;
+    const t = electroItem.getType();
+    // Requested: breaker/circuit. In this app that maps to Zekering + Kring.
+    // (Keeping it tight to avoid surprising copy/paste on other elements.)
+    return t === 'Zekering' || t === 'Kring';
+}
+
+function getEdsContextLabel(electroItem: Electro_Item, id: number): string {
+    const t = electroItem.getType();
+    if (t === 'Kring') {
+        const name = trimString((electroItem as any).props?.naam ?? '');
+        return name !== '' ? `Kring ${name}` : `Kring #${id}`;
+    }
+
+    // For other types, readable address is usually what users expect.
+    const addr = trimString(electroItem.getReadableAdres?.() ?? '');
+    return addr !== '' ? `${t} ${addr}` : `${t} #${id}`;
+}
+
+function setupEdsRightClickCopyPaste(right_col_inner: HTMLElement) {
+    if ((right_col_inner as any)._edsRightClickCopyPasteBound === true) return;
+    (right_col_inner as any)._edsRightClickCopyPasteBound = true;
+
+    // Hide on any normal click elsewhere.
+    window.addEventListener('click', () => {
+        if (edsContextMenu) edsContextMenu.hide();
+    });
+
+    right_col_inner.addEventListener('contextmenu', (ev: MouseEvent) => {
+        const target = ev.target as Element | null;
+        if (target == null) return;
+
+        const edsContainer = target.closest('#EDS') as HTMLElement | null;
+        if (edsContainer == null) return; // Let the browser menu work outside the drawing.
+
+        // We implement our own menu.
+        ev.preventDefault();
+
+        const clickedId = getEdsIdFromClickEvent(ev, target, edsContainer);
+        if (clickedId == null) return;
+
+        const clickedItem = globalThis.structure.getElectroItemById(clickedId) as Electro_Item | null;
+        if (!isEdsCopyPasteCandidate(clickedItem)) return;
+
+        if (edsContextMenu == null) edsContextMenu = new ContextMenu(document.body);
+        edsContextMenu.clearMenu();
+
+        const label = getEdsContextLabel(clickedItem, clickedId);
+        edsContextMenu.addMenuItem('Copy', () => {
+            edsClipboardId = clickedId;
+        });
+
+        edsContextMenu.addLine();
+        edsContextMenu.addMenuItem('Delete ' + label + '…', () => {
+            const ok = confirm('Delete ' + label + '?\n\nThis will also delete child elements.');
+            if (!ok) return;
+            if (edsClipboardId === clickedId) edsClipboardId = null;
+            globalThis.HLDelete(clickedId);
+        });
+
+        if (edsClipboardId != null) {
+            const copiedItem = globalThis.structure.getElectroItemById(edsClipboardId) as Electro_Item | null;
+            if (isEdsCopyPasteCandidate(copiedItem)) {
+                edsContextMenu.addLine();
+                edsContextMenu.addMenuItem('Paste left of ' + label, () => {
+                    pasteClipboardRelativeToTarget(clickedId, 'before');
+                });
+                edsContextMenu.addMenuItem('Paste right of ' + label, () => {
+                    pasteClipboardRelativeToTarget(clickedId, 'after');
+                });
+            }
+        }
+
+        edsContextMenu.addLine();
+        edsContextMenu.addMenuItem('Tip: click-highlight in tree', null, 'Ctrl/Cmd', { disabled: true, hint: true });
+
+        edsContextMenu.show(ev);
+    });
+}
+
+function pasteClipboardRelativeToTarget(targetId: number, where: 'before' | 'after') {
+    if (edsClipboardId == null) return;
+    const sourceId = edsClipboardId;
+
+    const targetItem = globalThis.structure.getElectroItemById(targetId) as Electro_Item | null;
+    if (targetItem == null) return;
+    const parent = targetItem.getParent();
+
+    const newId = globalThis.structure.cloneRelativeToId(sourceId, targetId, where);
+    if (newId == null) return;
+
+    globalThis.undostruct.store();
+
+    // Keep UI consistent with other tree operations.
+    if ((parent !== null) && (!isFirefox())) {
+        globalThis.structure.reNumber();
+        globalThis.structure.updateHTMLinner(parent.id);
+        globalThis.HLRedrawTreeSVG();
+    } else {
+        globalThis.HLRedrawTree();
+    }
+
+    // Make it easy to find the newly pasted element.
+    flashTreeViewItemById(newId);
 }
 
 function getEdsIdFromClickEvent(ev: MouseEvent, target: Element, edsContainer: HTMLElement): number | null {
@@ -946,73 +1352,85 @@ if (minitabs) {
 // Now add handlers for everything that changes in the left column
 const left_col_inner = document.querySelector('#left_col_inner');
 if (left_col_inner == null) throw new Error("HTML element left_col_inner is null");
-left_col_inner.addEventListener('change', function(event) {
 
-    function propUpdate(my_id: number, item: string, type: string, value: string | boolean): void {
+function hlPropUpdate(my_id: number, item: string, type: string, value: string | boolean): void {
 
-        let electroItem = globalThis.structure.getElectroItemById(my_id);
+    const electroItem = globalThis.structure.getElectroItemById(my_id);
+    if (electroItem == null) return;
 
-        switch (type) {
-            case "select-one":
-                if (item == "type") { // Type changed
-                    globalThis.structure.adjustTypeById(my_id, value as string);
-                    if (isFirefox()) {
-                        globalThis.HLRedrawTreeHTML();
-                    } else {
-                        globalThis.structure.reNumber();
-                        const parent = electroItem.getParent();
-                        if (parent !== null) globalThis.structure.updateHTMLinner(parent.id); else globalThis.structure.updateHTMLinner(my_id);
-                    }
+    switch (type) {
+        case "select-one":
+            if (item == "type") { // Type changed
+                globalThis.structure.adjustTypeById(my_id, value as string);
+                if (isFirefox()) {
+                    globalThis.HLRedrawTreeHTML();
                 } else {
-                    electroItem.props[item] = (value as string);
-                    if (isFirefox()) {
-                        globalThis.HLRedrawTreeHTML();
-                    } else {
-                        globalThis.structure.reNumber();
-                        globalThis.structure.updateHTMLinner(my_id);
-                    } 
+                    globalThis.structure.reNumber();
+                    const parent = electroItem.getParent();
+                    if (parent !== null) globalThis.structure.updateHTMLinner(parent.id); else globalThis.structure.updateHTMLinner(my_id);
                 }
-                break;
-            case "text":
+            } else {
                 electroItem.props[item] = (value as string);
-                globalThis.structure.reNumber();
-                if (item==='kortsluitvermogen')
-                    if (isFirefox()) {
-                        globalThis.HLRedrawTreeHTML();
-                    } else {
-                        globalThis.structure.updateHTMLinner(my_id);
-                    } 
-                break;
-            case "checkbox":
-                electroItem.props[item] = (value as boolean);
-                if (!isFirefox()) {
+                if (isFirefox()) {
+                    globalThis.HLRedrawTreeHTML();
+                } else {
                     globalThis.structure.reNumber();
                     globalThis.structure.updateHTMLinner(my_id);
-                } else globalThis.HLRedrawTreeHTML();
-                break;
-        }
-
-        if (electroItem.getType() == "Domotica gestuurde verbruiker")
-            globalThis.structure.voegAttributenToeAlsNodigEnReSort();
-
-        globalThis.undostruct.store();
-        globalThis.HLRedrawTreeSVG();
+                }
+            }
+            break;
+        case "text":
+            electroItem.props[item] = (value as string);
+            globalThis.structure.reNumber();
+            if (item === 'kortsluitvermogen') {
+                if (isFirefox()) {
+                    globalThis.HLRedrawTreeHTML();
+                } else {
+                    globalThis.structure.updateHTMLinner(my_id);
+                }
+            }
+            break;
+        case "checkbox":
+            electroItem.props[item] = (value as boolean);
+            if (!isFirefox()) {
+                globalThis.structure.reNumber();
+                globalThis.structure.updateHTMLinner(my_id);
+            } else {
+                globalThis.HLRedrawTreeHTML();
+            }
+            break;
     }
 
-    const element: HTMLInputElement = event.target as HTMLInputElement;
+    if (electroItem.getType() == "Domotica gestuurde verbruiker") {
+        globalThis.structure.voegAttributenToeAlsNodigEnReSort();
+    }
+
+    globalThis.undostruct.store();
+    globalThis.HLRedrawTreeSVG();
+}
+
+function handleHlEditChange(eventTarget: EventTarget | null) {
+    const element = eventTarget as (HTMLInputElement | HTMLSelectElement | null);
+    if (element == null || typeof (element as any).id !== 'string') return;
 
     // Ensure the id starts with 'HL_edit_'
     if (!element.id.startsWith('HL_edit_')) return;
 
-    const { type, id } = element;
-    const value = type === 'checkbox' ? element.checked : element.value;
+    const id = element.id;
+    const type = (element as any).type as string;
+    const value = type === 'checkbox' ? (element as HTMLInputElement).checked : (element as any).value;
 
     // Extract id and key from id
     const match = id.match(/^HL_edit_(\d+)_(.+)$/);
     const idNumber = match ? match[1] : null;
     const key = match ? match[2] : null;
     if (idNumber == null || key == null) return;
-    propUpdate(parseInt(idNumber),key,type,value);
+
+    hlPropUpdate(parseInt(idNumber), key, type, value);
+}
+
+left_col_inner.addEventListener('change', function(event) {
+    handleHlEditChange(event.target);
 });
 
 EDStoStructure(globalThis.EXAMPLE_DEFAULT,false); //Just in case the user doesn't select a scheme and goes to drawing immediately, there should be something there
