@@ -947,6 +947,103 @@ table {
   color: var(--link);
 }
 
+.eds-drawing-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.eds-keybinds-help-button {
+  margin-left: auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--popup-bg) 85%, white 15%);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.eds-keybinds-help-button:hover {
+  background: color-mix(in srgb, var(--popup-bg) 70%, white 30%);
+}
+
+.eds-keybinds-modal {
+  width: min(680px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 32px));
+  overflow: auto;
+}
+
+.eds-keybinds-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.eds-keybinds-title {
+  margin: 10px 0 8px;
+}
+
+.eds-keybinds-close {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--text);
+}
+
+.eds-keybinds-close:hover {
+  background: color-mix(in srgb, var(--popup-bg) 70%, black 10%);
+}
+
+.eds-keybinds-body {
+  margin-top: 6px;
+}
+
+.eds-keybinds-note {
+  color: var(--muted-text);
+  font-size: 13px;
+  margin: 10px 0;
+}
+
+.eds-keybinds-grid {
+  display: grid;
+  grid-template-columns: 210px 1fr;
+  gap: 10px 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--popup-bg) 92%, white 8%);
+}
+
+.eds-keybinds-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  color: var(--text);
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: fit-content;
+  background: color-mix(in srgb, var(--popup-bg) 85%, white 15%);
+}
+
+.eds-keybinds-desc {
+  color: var(--text);
+  font-size: 13px;
+}
+
+@media (max-width: 520px) {
+  .eds-keybinds-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .rounded-button {
   margin-top: 10px;
   margin-bottom: 0px;

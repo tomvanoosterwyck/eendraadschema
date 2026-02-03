@@ -170,6 +170,78 @@ globalThis.HLCollapseExpand = (my_id: number, state?: Boolean) => {
     }
 }
 
+function closeEdsKeybindsModal() {
+    const overlay = document.getElementById('edsKeybindsModalOverlay');
+    if (overlay && overlay.parentElement) {
+        overlay.parentElement.removeChild(overlay);
+    }
+}
+
+function openEdsKeybindsModal() {
+    closeEdsKeybindsModal();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'edsKeybindsModalOverlay';
+    overlay.classList.add('popup-overlay', 'eds-keybinds-modal-overlay');
+
+    const popup = document.createElement('div');
+    popup.classList.add('popup', 'eds-keybinds-modal');
+    popup.innerHTML = `
+        <div class="eds-keybinds-header">
+            <h3 class="eds-keybinds-title">Keybinds</h3>
+            <button type="button" class="eds-keybinds-close" title="Sluiten">×</button>
+        </div>
+        <div class="eds-keybinds-body">
+            <div class="eds-keybinds-note">
+                Shortcuts apply to the element you are hovering in the SVG drawing (EDS). If you're typing in a text field, normal browser copy/paste wins.
+            </div>
+
+            <div class="eds-keybinds-grid">
+                <div class="eds-keybinds-key">Ctrl/Cmd + C</div>
+                <div class="eds-keybinds-desc">Copy settings</div>
+
+                <div class="eds-keybinds-key">Ctrl/Cmd + V</div>
+                <div class="eds-keybinds-desc">Paste settings (same type), or confirm to replace type</div>
+
+                <div class="eds-keybinds-key">Shift + Ctrl/Cmd + C</div>
+                <div class="eds-keybinds-desc">Copy component (including sub-elements)</div>
+
+                <div class="eds-keybinds-key">Shift + Ctrl/Cmd + V</div>
+                <div class="eds-keybinds-desc">Paste component after hovered element (same parent)</div>
+
+                <div class="eds-keybinds-key">Shift + Alt + Ctrl/Cmd + V</div>
+                <div class="eds-keybinds-desc">Paste component before hovered element</div>
+
+                <div class="eds-keybinds-key">Ctrl/Cmd + Click</div>
+                <div class="eds-keybinds-desc">Highlight element in tree</div>
+            </div>
+
+            <div class="eds-keybinds-note">
+                Note: some browsers reserve Ctrl/Cmd+Shift+C for DevTools “Inspect”. If that happens, choose the context menu instead.
+            </div>
+        </div>
+    `;
+
+    overlay.appendChild(popup);
+    document.body.appendChild(overlay);
+    overlay.style.visibility = 'visible';
+    overlay.style.pointerEvents = 'auto';
+
+    const closeBtn = popup.querySelector('.eds-keybinds-close') as HTMLButtonElement | null;
+    closeBtn?.addEventListener('click', () => closeEdsKeybindsModal());
+
+    overlay.addEventListener('mousedown', (ev: MouseEvent) => {
+        if (ev.target === overlay) closeEdsKeybindsModal();
+    });
+
+    window.addEventListener('keydown', function onKeyDown(ev: KeyboardEvent) {
+        if (ev.key === 'Escape') {
+            window.removeEventListener('keydown', onKeyDown);
+            closeEdsKeybindsModal();
+        }
+    });
+}
+
 function closeTreeItemModal() {
     const overlay = document.getElementById('edsTreeModalOverlay');
     if (overlay && overlay.parentElement) {
@@ -850,7 +922,9 @@ function setupTreeDragAndDrop(leftColInner: HTMLElement) {
 }
 
 globalThis.HLRedrawTreeSVG = () => {
-    let str:string = '<b>Tekening: </b>Ga naar het print-menu om de tekening af te printen of te exporteren als SVG vector graphics.<br><br>'
+    let str:string = '<div class="eds-drawing-header"><b>Tekening: </b>Ga naar het print-menu om de tekening af te printen of te exporteren als SVG vector graphics.'
+                   + '<button type="button" id="edsKeybindsHelpButton" class="eds-keybinds-help-button" title="Keybinds">?</button>'
+                   + '</div><br>'
                    + '<div id="EDS">' + flattenSVGfromString(globalThis.structure.toSVG(0,"horizontal").data,10) + '</div>'
                    + '<h2>Legende:</h2>'
                    + '<button class="button-insertBefore"></button> Item hierboven invoegen (zelfde niveau)<br>'
@@ -862,6 +936,19 @@ globalThis.HLRedrawTreeSVG = () => {
 
     const right_col_inner = document.getElementById("right_col_inner");
     if (right_col_inner != null) right_col_inner.innerHTML = str;
+
+    if (right_col_inner != null && (right_col_inner as any)._edsKeybindsHelpBound !== true) {
+        (right_col_inner as any)._edsKeybindsHelpBound = true;
+        right_col_inner.addEventListener('click', (ev: MouseEvent) => {
+            const t = ev.target as HTMLElement | null;
+            if (t == null) return;
+            if (t.closest('#edsKeybindsHelpButton') != null) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                openEdsKeybindsModal();
+            }
+        });
+    }
 
     // Ensure clicking an SVG component briefly highlights it in the tree view.
     setupEdsClickToTreeFlash();
