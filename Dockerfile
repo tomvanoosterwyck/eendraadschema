@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # --- Frontend build ---
-FROM node:22-alpine AS webbuild
+FROM --platform=$BUILDPLATFORM node:22-alpine AS webbuild
 WORKDIR /app
 
 # Install deps first (better layer caching)
@@ -14,14 +14,17 @@ RUN yarn build
 
 
 # --- Backend build ---
-FROM golang:1.25 AS gobuild
+FROM --platform=$BUILDPLATFORM golang:1.25 AS gobuild
 WORKDIR /src/server
+
+ARG TARGETOS
+ARG TARGETARCH
 
 COPY server/go.mod server/go.sum ./
 RUN go mod download
 
 COPY server ./
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/share-server ./cmd/share-server
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /out/share-server ./cmd/share-server
 
 
 # --- Runtime prep (create writable data dir) ---

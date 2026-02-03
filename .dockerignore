@@ -1,6 +1,8 @@
 node_modules
 server/data
 server/**/*.db
+server/**/*.db-shm
+server/**/*.db-wal
 .DS_Store
 dist
 .git
