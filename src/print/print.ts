@@ -70,7 +70,9 @@ export function printsvg() {
             pagerange = rangeInput.value.trim();
         }
 
-        const sitplanprint = globalThis.structure.sitplan.toSitPlanPrint();
+        const sitplanprint = globalThis.structure.sitplan
+            ? globalThis.structure.sitplan.toSitPlanPrint()
+            : { numpages: 0, pages: [] };
 
         // If autopage, overwrite the input fields
         if (globalThis.structure.print_table.enableAutopage) {
