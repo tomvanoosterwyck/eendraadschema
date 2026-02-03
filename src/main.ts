@@ -10,7 +10,7 @@ import { ContextMenu } from "./sitplan/ContextMenu";
 import { printsvg } from "./print/print";
 import { PROP_edit_menu } from "../prop/prop_scripts";
 import { CookieBanner } from "../prop/CookieBanner";
-import { flattenSVGfromString, isFirefox, trimString } from "./general";
+import { deepClone, flattenSVGfromString, isFirefox, trimString } from "./general";
 import { isInt } from "./general";
 import { Bord } from "./List_Item/Bord";
 import { Kring } from "./List_Item/Kring";
@@ -343,9 +343,15 @@ function openTreeItemModal(my_id: number) {
     popup.classList.add('popup', 'eds-tree-modal');
 
     const title = `${trimString(electroItem.getType()) || 'Element'} — ${trimString(electroItem.getReadableAdres()) || `ID ${my_id}`}`;
+    const canPasteSameType = edsSettingsClipboard != null && trimString(edsSettingsClipboard.type) !== '' && trimString(edsSettingsClipboard.type) === trimString(electroItem.getType());
     popup.innerHTML = `
         <div class="eds-tree-modal-header">
             <div class="eds-tree-modal-title">${title}</div>
+            <div class="eds-tree-modal-actions">
+                <button type="button" class="eds-tree-modal-action" data-eds-action="copy-settings" title="Copy settings">Copy</button>
+                <button type="button" class="eds-tree-modal-action" data-eds-action="paste-settings" title="Paste settings" ${canPasteSameType ? '' : 'disabled'}>Paste</button>
+                <button type="button" class="eds-tree-modal-action" data-eds-action="replace-settings" title="Replace settings">Replace</button>
+            </div>
             <div class="eds-tree-modal-preview" aria-hidden="true"></div>
             <button type="button" class="eds-tree-modal-close" title="Sluiten">×</button>
         </div>
@@ -370,6 +376,43 @@ function openTreeItemModal(my_id: number) {
 
     const closeButton = popup.querySelector('.eds-tree-modal-close') as HTMLButtonElement | null;
     closeButton?.addEventListener('click', () => closeTreeItemModal());
+
+    const actions = popup.querySelector('.eds-tree-modal-actions') as HTMLElement | null;
+    actions?.addEventListener('click', (ev: MouseEvent) => {
+        const target = ev.target as HTMLElement | null;
+        const action = target?.getAttribute?.('data-eds-action');
+        if (!action) return;
+
+        ev.preventDefault();
+        ev.stopPropagation();
+
+        if (action === 'copy-settings') {
+            copyEdsItemSettings(my_id);
+            // Refresh disabled/enabled state quickly.
+            openTreeItemModal(my_id);
+            return;
+        }
+
+        if (action === 'paste-settings') {
+            applyEdsItemSettings(my_id, { replaceType: false });
+            return;
+        }
+
+        if (action === 'replace-settings') {
+            if (edsSettingsClipboard == null) {
+                alert('No copied settings yet. Use Copy first.');
+                return;
+            }
+            const srcType = trimString(edsSettingsClipboard.type);
+            const dstType = trimString(electroItem.getType());
+            const ok = (srcType !== '' && srcType !== dstType)
+                ? confirm(`Replace this element (type ${dstType || 'unknown'}) with copied settings (type ${srcType})?`)
+                : true;
+            if (!ok) return;
+            applyEdsItemSettings(my_id, { replaceType: true });
+            return;
+        }
+    });
 
     // Enable editing: reuse the same HL_edit_* change handler as the tree view.
     popup.addEventListener('change', (ev: Event) => {
@@ -925,6 +968,8 @@ function setupEdsClickToTreeFlash() {
     if ((right_col_inner as any)._edsClickToTreeFlashBound === true) return;
     (right_col_inner as any)._edsClickToTreeFlashBound = true;
 
+    setupEdsHoverTargetTracking(right_col_inner);
+
     // Toggle cursor feedback when Ctrl/Cmd is held.
     if ((window as any)._edsModifierKeyBound !== true) {
         (window as any)._edsModifierKeyBound = true;
@@ -950,6 +995,8 @@ function setupEdsClickToTreeFlash() {
         const id = getEdsIdFromClickEvent(ev, target, edsContainer);
         if (id == null) return;
 
+        markEdsKeyboardInteraction(id);
+
         // Ctrl/Cmd-click: highlight in tree.
         if (ev.ctrlKey || ev.metaKey) {
             flashTreeViewItemById(id);
@@ -962,11 +1009,238 @@ function setupEdsClickToTreeFlash() {
         }
     });
 
+    setupEdsKeyboardCopyPasteShortcuts();
     setupEdsRightClickCopyPaste(right_col_inner);
 }
 
 let edsClipboardId: number | null = null;
 let edsContextMenu: ContextMenu | null = null;
+
+let edsComponentClipboardId: number | null = null;
+
+let edsLastKeyboardTargetId: number | null = null;
+let edsHoverKeyboardTargetId: number | null = null;
+let edsKeyboardActiveUntilMs = 0;
+
+function markEdsKeyboardInteraction(id: number) {
+    edsLastKeyboardTargetId = id;
+    edsKeyboardActiveUntilMs = Date.now() + 60_000;
+}
+
+function markEdsKeyboardHover(id: number | null) {
+    edsHoverKeyboardTargetId = id;
+    if (id != null) edsKeyboardActiveUntilMs = Date.now() + 60_000;
+}
+
+function isEditableElementTarget(target: EventTarget | null): boolean {
+    const el = target as HTMLElement | null;
+    if (el == null) return false;
+    if (el.isContentEditable) return true;
+    const tag = (el as any).tagName as string | undefined;
+    if (!tag) return false;
+    const t = tag.toUpperCase();
+    return t === 'INPUT' || t === 'TEXTAREA' || t === 'SELECT';
+}
+
+function setupEdsKeyboardCopyPasteShortcuts() {
+    if ((window as any)._edsKeyboardCopyPasteBound === true) return;
+    (window as any)._edsKeyboardCopyPasteBound = true;
+
+    window.addEventListener('keydown', (ev: KeyboardEvent) => {
+        if (!(ev.ctrlKey || ev.metaKey)) return;
+        if (isEditableElementTarget(ev.target)) return;
+
+        const key = (ev.key ?? '').toLowerCase();
+        if (key !== 'c' && key !== 'v') return;
+
+        const targetId = edsHoverKeyboardTargetId ?? edsLastKeyboardTargetId;
+        if (targetId == null) return;
+        if (Date.now() > edsKeyboardActiveUntilMs) return;
+
+        // Only take over copy/paste if the user recently interacted with the EDS drawing.
+        // This avoids hijacking Cmd/Ctrl+C/V elsewhere in the UI.
+        const targetItem = globalThis.structure.getElectroItemById(targetId) as Electro_Item | null;
+        if (targetItem == null) return;
+
+        // Shift+Ctrl/Cmd+C/V: copy/paste *components* (including subtree).
+        // Note: some browsers reserve Ctrl/Cmd+Shift+C for DevTools; if that happens the page may not receive the key event.
+        if (ev.shiftKey && key === 'c') {
+            edsComponentClipboardId = targetId;
+            flashTreeViewItemById(targetId);
+            ev.preventDefault();
+            ev.stopPropagation();
+            return;
+        }
+
+        if (ev.shiftKey && key === 'v') {
+            if (edsComponentClipboardId == null) return;
+            const sourceId = edsComponentClipboardId;
+
+            const where: 'before' | 'after' = ev.altKey ? 'before' : 'after';
+            // Paste as a sibling of the hovered element (same parent), after/before that element.
+            // This ensures the new component is added to the hovered element's parent.
+            pasteClipboardRelativeToTarget(targetId, where, sourceId);
+            flashTreeViewItemById(targetId);
+            ev.preventDefault();
+            ev.stopPropagation();
+            return;
+        }
+
+        if (key === 'c') {
+            copyEdsItemSettings(targetId);
+            flashTreeViewItemById(targetId);
+            ev.preventDefault();
+            ev.stopPropagation();
+            return;
+        }
+
+        // key === 'v'
+        if (edsSettingsClipboard == null) return;
+
+        const srcType = trimString(edsSettingsClipboard.type);
+        const dstType = trimString(targetItem.getType());
+
+        if (srcType !== '' && srcType === dstType) {
+            applyEdsItemSettings(targetId, { replaceType: false });
+            flashTreeViewItemById(targetId);
+            ev.preventDefault();
+            ev.stopPropagation();
+            return;
+        }
+
+        const label = getEdsContextLabel(targetItem, targetId);
+        const ok = confirm(`Replace settings of ${label} with copied ${srcType || 'element'} settings?\n\nIf the type differs, the element type will be updated too.`);
+        if (!ok) return;
+        applyEdsItemSettings(targetId, { replaceType: true });
+        flashTreeViewItemById(targetId);
+        ev.preventDefault();
+        ev.stopPropagation();
+    });
+}
+
+function setupEdsHoverTargetTracking(right_col_inner: HTMLElement) {
+    if ((right_col_inner as any)._edsHoverTargetTrackingBound === true) return;
+    (right_col_inner as any)._edsHoverTargetTrackingBound = true;
+
+    let lastMoveAt = 0;
+
+    right_col_inner.addEventListener('mousemove', (ev: MouseEvent) => {
+        const now = Date.now();
+        if (now - lastMoveAt < 40) return;
+        lastMoveAt = now;
+
+        const target = ev.target as Element | null;
+        if (target == null) return;
+
+        const edsContainer = target.closest('#EDS') as HTMLElement | null;
+        if (edsContainer == null) {
+            markEdsKeyboardHover(null);
+            return;
+        }
+
+        const id = getEdsIdFromClickEvent(ev, target, edsContainer);
+        if (id == null) return;
+        markEdsKeyboardHover(id);
+    });
+
+    right_col_inner.addEventListener('mouseleave', () => {
+        markEdsKeyboardHover(null);
+    });
+}
+
+type EdsSettingsClipboard = {
+    type: string;
+    props: any;
+};
+
+let edsSettingsClipboard: EdsSettingsClipboard | null = null;
+
+function sanitizePropsForSettingsClipboard(itemType: string, rawProps: any) {
+    const cloned = deepClone(rawProps ?? {});
+
+    // Users often want to copy technical settings but keep each element's label/text.
+    // Exception: for 'Vrije tekst', the text *is* the core content.
+    if (trimString(itemType) !== 'Vrije tekst') {
+        if (cloned && typeof cloned === 'object') {
+            delete (cloned as any).tekst;
+            delete (cloned as any).Tekst;
+        }
+    }
+
+    return cloned;
+}
+
+function copyEdsItemSettings(sourceId: number) {
+    const item = globalThis.structure.getElectroItemById(sourceId) as Electro_Item | null;
+    if (item == null) return;
+    const itemType = trimString(item.getType?.() ?? '');
+    edsSettingsClipboard = {
+        type: itemType,
+        props: sanitizePropsForSettingsClipboard(itemType, (item as any).props)
+    };
+}
+
+function applyEdsItemSettings(targetId: number, options: { replaceType?: boolean } = {}) {
+    if (edsSettingsClipboard == null) return;
+
+    const before = globalThis.structure.getElectroItemById(targetId) as Electro_Item | null;
+    if (before == null) return;
+
+    const keepNr = (before as any).props?.nr;
+    const keepAdres = (before as any).props?.adres;
+    const keepIsAttribuut = (before as any).props?.isAttribuut;
+    const keepTekst = (before as any).props?.tekst;
+
+    const sourceType = trimString(edsSettingsClipboard.type);
+    const targetType = trimString(before.getType?.() ?? '');
+
+    if (options.replaceType === true && sourceType !== '' && sourceType !== targetType) {
+        globalThis.structure.adjustTypeById(targetId, sourceType);
+    }
+
+    const target = globalThis.structure.getElectroItemById(targetId) as Electro_Item | null;
+    if (target == null) return;
+
+    const nextProps = deepClone(edsSettingsClipboard.props ?? {});
+
+    // Always keep these identity-ish fields from the target to avoid surprising duplicates.
+    if (keepNr != null) nextProps.nr = keepNr;
+    if (keepAdres != null) nextProps.adres = keepAdres;
+    if (keepIsAttribuut != null) nextProps.isAttribuut = keepIsAttribuut;
+
+    // If the clipboard omitted the 'tekst' field, preserve the target's current text.
+    if (!Object.prototype.hasOwnProperty.call(nextProps ?? {}, 'tekst') && keepTekst != null) {
+        nextProps.tekst = keepTekst;
+    }
+
+    // Ensure 'type' is consistent with the current element instance.
+    nextProps.type = trimString(target.getType?.() ?? nextProps.type ?? '');
+
+    (target as any).props = nextProps;
+
+    if (target.getType() == "Domotica gestuurde verbruiker") {
+        globalThis.structure.voegAttributenToeAlsNodigEnReSort();
+    }
+
+    globalThis.undostruct.store();
+
+    if (isFirefox()) {
+        globalThis.HLRedrawTreeHTML();
+    } else {
+        globalThis.structure.reNumber();
+        const parent = target.getParent();
+        if (parent !== null) globalThis.structure.updateHTMLinner(parent.id); else globalThis.structure.updateHTMLinner(targetId);
+    }
+
+    globalThis.HLRedrawTreeSVG();
+
+    if (globalThis.treeEditInModal === true) {
+        const openId = (globalThis as any)._edsTreeModalOpenId as number | null;
+        if (openId != null && openId === targetId) {
+            openTreeItemModal(targetId);
+        }
+    }
+}
 
 function isEdsCopyPasteCandidate(electroItem: Electro_Item | null): boolean {
     if (electroItem == null) return false;
@@ -1010,22 +1284,50 @@ function setupEdsRightClickCopyPaste(right_col_inner: HTMLElement) {
         const clickedId = getEdsIdFromClickEvent(ev, target, edsContainer);
         if (clickedId == null) return;
 
+        markEdsKeyboardInteraction(clickedId);
+
         const clickedItem = globalThis.structure.getElectroItemById(clickedId) as Electro_Item | null;
-        if (!isEdsCopyPasteCandidate(clickedItem)) return;
+        if (clickedItem == null) return;
 
         if (edsContextMenu == null) edsContextMenu = new ContextMenu(document.body);
         edsContextMenu.clearMenu();
 
         const label = getEdsContextLabel(clickedItem, clickedId);
-        edsContextMenu.addMenuItem('Copy', () => {
-            edsClipboardId = clickedId;
+
+        edsContextMenu.addMenuItem('Copy settings', () => {
+            copyEdsItemSettings(clickedId);
         });
+
+        if (edsSettingsClipboard != null) {
+            const srcType = trimString(edsSettingsClipboard.type);
+            const dstType = trimString(clickedItem.getType());
+
+            if (srcType !== '' && srcType === dstType) {
+                edsContextMenu.addMenuItem('Paste settings', () => {
+                    applyEdsItemSettings(clickedId, { replaceType: false });
+                });
+            } else {
+                edsContextMenu.addMenuItem('Replace with copied settings', () => {
+                    const ok = confirm(`Replace settings of ${label} with copied ${srcType || 'element'} settings?\n\nIf the type differs, the element type will be updated too.`);
+                    if (!ok) return;
+                    applyEdsItemSettings(clickedId, { replaceType: true });
+                });
+            }
+        }
+
+        if (isEdsCopyPasteCandidate(clickedItem)) {
+            edsContextMenu.addLine();
+            edsContextMenu.addMenuItem('Copy circuit', () => {
+                edsClipboardId = clickedId;
+            });
+        }
 
         edsContextMenu.addLine();
         edsContextMenu.addMenuItem('Delete ' + label + '…', () => {
             const ok = confirm('Delete ' + label + '?\n\nThis will also delete child elements.');
             if (!ok) return;
             if (edsClipboardId === clickedId) edsClipboardId = null;
+            if (edsComponentClipboardId === clickedId) edsComponentClipboardId = null;
             globalThis.HLDelete(clickedId);
         });
 
@@ -1049,9 +1351,9 @@ function setupEdsRightClickCopyPaste(right_col_inner: HTMLElement) {
     });
 }
 
-function pasteClipboardRelativeToTarget(targetId: number, where: 'before' | 'after') {
-    if (edsClipboardId == null) return;
-    const sourceId = edsClipboardId;
+function pasteClipboardRelativeToTarget(targetId: number, where: 'before' | 'after', sourceIdOverride?: number) {
+    const sourceId = sourceIdOverride ?? edsClipboardId;
+    if (sourceId == null) return;
 
     const targetItem = globalThis.structure.getElectroItemById(targetId) as Electro_Item | null;
     if (targetItem == null) return;

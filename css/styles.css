@@ -648,6 +648,31 @@ table.html_edit_table td.hl-collapse-cell .hl-collapse-icon {
   overflow: hidden;
 }
 
+.eds-tree-modal-actions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.eds-tree-modal-action {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.eds-tree-modal-action:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.eds-tree-modal-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .eds-tree-modal-preview svg {
   display: block;
 }
