@@ -1,0 +1,27 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      EDS_SHARE_PASSWORD: "ChangeMe123!"
+      # SQLite by default; uncomment for PostgreSQL
+      # EDS_SHARE_DB_DRIVER: "postgres"
+      # EDS_SHARE_DB_DSN: "postgres://postgres:postgres@db:5432/eendraadschema?sslmode=disable"
+    volumes:
+      - app-data:/app/data
+
+  db:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: eendraadschema
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+
+volumes:
+  app-data:
+  pg-data:

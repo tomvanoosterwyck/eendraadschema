@@ -24,6 +24,7 @@ import { undoRedo } from "./undoRedo";
 import { importExportUsingFileAPI } from "./importExport/importExport";
 import { changelog } from "./changelog";
 import { initTheme, onThemeChanged, toggleTheme, type Theme } from "./ThemeManager";
+import { SituationPlanElement } from "./sitplan/SituationPlanElement";
 
 import "../css/all.css";
 
@@ -178,6 +179,153 @@ function closeTreeItemModal() {
     (globalThis as any)._edsTreeModalOpenId = null;
 }
 
+function updateTreeItemModalPreview(popupRoot: HTMLElement, my_id: number) {
+    const preview = popupRoot.querySelector('.eds-tree-modal-preview') as HTMLElement | null;
+    if (!preview) return;
+
+    const electroItem = globalThis.structure.getElectroItemById(my_id);
+    if (electroItem == null || typeof (electroItem as any).updateSituationPlanElement !== 'function') {
+        preview.innerHTML = '';
+        return;
+    }
+
+    try {
+        const spEl = new SituationPlanElement();
+        spEl.setElectroItemId(my_id);
+        spEl.rotate = 0;
+        spEl.setscale(1);
+
+        (electroItem as any).updateSituationPlanElement(spEl);
+        preview.innerHTML = spEl.svg ?? '';
+
+        const svg = preview.querySelector('svg') as SVGElement | null;
+        if (svg) {
+            svg.removeAttribute('width');
+            svg.removeAttribute('height');
+            svg.setAttribute('width', '100%');
+            svg.setAttribute('height', '100%');
+            svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        }
+    } catch (e) {
+        preview.innerHTML = '';
+    }
+}
+
+function structureTreeItemModalBody(bodyEl: HTMLElement) {
+    // Heuristic: most element editors build one long string separated by ", ".
+    // In the modal, we restructure it into block rows for readability.
+    if (bodyEl.querySelector('.eds-prop-grid')) return;
+
+    let raw = bodyEl.innerHTML;
+    if (raw.trim() === '') return;
+
+    // Convert explicit line breaks into stronger section breaks.
+    raw = raw.replace(/<br\s*\/?>/gi, '<span class="eds-prop-section-break"></span>');
+
+    // Split typical linear property lists into rows.
+    // Note: this is intentionally simple; the generated HTML almost never contains commas
+    // in attributes, and commas in labels are rare.
+    raw = raw.replace(/,\s+/g, '<span class="eds-prop-delim"></span>');
+
+    bodyEl.innerHTML = raw;
+
+    const nodes = Array.from(bodyEl.childNodes);
+    const grid = document.createElement('div');
+    grid.className = 'eds-prop-grid';
+
+    const rowHasMeaningfulContent = (row: HTMLElement): boolean => {
+        for (const n of Array.from(row.childNodes)) {
+            if (n.nodeType === Node.ELEMENT_NODE) return true;
+            if (n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim() !== '') return true;
+        }
+        return false;
+    };
+
+    const flushRow = (row: HTMLElement) => {
+        if (!rowHasMeaningfulContent(row)) return;
+        grid.appendChild(row);
+    };
+
+    const makeCheckboxTextClickable = (container: HTMLElement) => {
+        const checkboxes = Array.from(container.querySelectorAll('input[type="checkbox"]')) as HTMLInputElement[];
+        for (const checkbox of checkboxes) {
+            if (checkbox.closest('label')) continue;
+
+            const row = checkbox.closest('.eds-prop-row') as HTMLElement | null;
+            if (!row) continue;
+
+            const nodesToWrap: Node[] = [];
+            let cursor: ChildNode | null = checkbox.previousSibling;
+            while (cursor) {
+                // Stop if we hit another control; we only want the immediate label text.
+                if (cursor.nodeType === Node.ELEMENT_NODE) {
+                    const tag = (cursor as HTMLElement).tagName;
+                    if (tag === 'LABEL') break;
+                    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'BUTTON') break;
+                }
+
+                if (cursor.nodeType === Node.TEXT_NODE) {
+                    const t = (cursor.textContent ?? '');
+                    if (t.trim() === '') {
+                        // Keep a single separating whitespace with the label.
+                        nodesToWrap.push(cursor);
+                    } else {
+                        nodesToWrap.push(cursor);
+                    }
+                } else {
+                    // In case some derived UI uses <b>Label</b> before the checkbox.
+                    nodesToWrap.push(cursor);
+                }
+
+                cursor = cursor.previousSibling;
+            }
+
+            const hasNonWhitespaceText = nodesToWrap.some((n) => n.nodeType !== Node.TEXT_NODE || ((n.textContent ?? '').trim() !== ''));
+            if (!hasNonWhitespaceText) continue;
+
+            nodesToWrap.reverse();
+            const label = document.createElement('label');
+            label.className = 'eds-inline-checkbox-label';
+
+            row.insertBefore(label, nodesToWrap[0] ?? checkbox);
+            for (const n of nodesToWrap) label.appendChild(n);
+            label.appendChild(checkbox);
+        }
+    };
+
+    let currentRow = document.createElement('div');
+    currentRow.className = 'eds-prop-row';
+
+    for (const node of nodes) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+            const el = node as HTMLElement;
+            if (el.classList.contains('eds-prop-delim')) {
+                flushRow(currentRow);
+                currentRow = document.createElement('div');
+                currentRow.className = 'eds-prop-row';
+                continue;
+            }
+            if (el.classList.contains('eds-prop-section-break')) {
+                flushRow(currentRow);
+                const spacer = document.createElement('div');
+                spacer.className = 'eds-prop-section-spacer';
+                grid.appendChild(spacer);
+                currentRow = document.createElement('div');
+                currentRow.className = 'eds-prop-row';
+                continue;
+            }
+        }
+
+        currentRow.appendChild(node);
+    }
+
+    flushRow(currentRow);
+    bodyEl.innerHTML = '';
+    bodyEl.appendChild(grid);
+
+    makeCheckboxTextClickable(grid);
+}
+
 function openTreeItemModal(my_id: number) {
     // Only relevant when modal editing is enabled.
     if (globalThis.treeEditInModal !== true) return;
@@ -198,6 +346,7 @@ function openTreeItemModal(my_id: number) {
     popup.innerHTML = `
         <div class="eds-tree-modal-header">
             <div class="eds-tree-modal-title">${title}</div>
+            <div class="eds-tree-modal-preview" aria-hidden="true"></div>
             <button type="button" class="eds-tree-modal-close" title="Sluiten">×</button>
         </div>
         <div class="eds-tree-modal-body">
@@ -207,6 +356,11 @@ function openTreeItemModal(my_id: number) {
 
     overlay.appendChild(popup);
     document.body.appendChild(overlay);
+
+    const body = popup.querySelector('.eds-tree-modal-body') as HTMLElement | null;
+    if (body) structureTreeItemModalBody(body);
+
+    updateTreeItemModalPreview(popup, my_id);
 
     overlay.style.visibility = 'visible';
     document.body.style.pointerEvents = 'none';
@@ -220,6 +374,8 @@ function openTreeItemModal(my_id: number) {
     // Enable editing: reuse the same HL_edit_* change handler as the tree view.
     popup.addEventListener('change', (ev: Event) => {
         handleHlEditChange(ev.target);
+
+        updateTreeItemModalPreview(popup, my_id);
 
         // If the type changed, rebuild the modal content to match the new element UI.
         const t = ev.target as any;
@@ -1433,7 +1589,7 @@ left_col_inner.addEventListener('change', function(event) {
     handleHlEditChange(event.target);
 });
 
-function tryLoadFromShareLink(): boolean {
+async function tryLoadFromShareLink(): Promise<boolean> {
     try {
         const rawHash = window.location.hash && window.location.hash.startsWith('#')
             ? window.location.hash.slice(1)
@@ -1488,6 +1644,10 @@ function tryLoadFromShareLink(): boolean {
             return b64;
         }
 
+        function isUuid(v: string): boolean {
+            return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+        }
+
         if (payload.startsWith('EDS') && payload.length > 10) {
             const header = payload.substring(0, 10); // EDS###0000
             const b64url = payload.substring(10);
@@ -1504,6 +1664,31 @@ function tryLoadFromShareLink(): boolean {
             const encoded = payload.substring(10);
             const txtString = header + decodeURIComponent(encoded);
             EDStoStructure(txtString, true, true);
+            if (globalThis.structure.sitplan) globalThis.structure.sitplan.activePage = 1;
+            clearShareHashFromUrl();
+            showLoadedToast('Schema geladen uit deel-link.');
+            return true;
+        }
+
+        // New format: short share id (UUID) stored server-side.
+        if (isUuid(payload)) {
+            const shareId = payload;
+
+            const resp = await fetch(`/api/shares/${shareId}`, { credentials: 'include' });
+
+            if (!resp.ok) {
+                console.warn('Share API error:', resp.status, await resp.text());
+                alert('Kon het schema niet laden uit de deel-link (serverfout).');
+                return false;
+            }
+
+            const data = await resp.json() as { schema: string };
+            if (!data || typeof data.schema !== 'string' || data.schema.length < 10) {
+                alert('Kon het schema niet laden uit de deel-link (ongeldig antwoord).');
+                return false;
+            }
+
+            EDStoStructure(data.schema, true, true);
             if (globalThis.structure.sitplan) globalThis.structure.sitplan.activePage = 1;
             clearShareHashFromUrl();
             showLoadedToast('Schema geladen uit deel-link.');
@@ -1547,8 +1732,8 @@ let lastSavedInfo:any = null;
 (async () => {   
     [lastSavedStr, lastSavedInfo] = await globalThis.autoSaver.loadLastSaved();
     if ((lastSavedStr != null) /* && (lastSavedInfo.recovery == true) */ ) recoveryAvailable = true;
-})().then(() => {
-    const loadedFromShare = tryLoadFromShareLink();
+})().then(async () => {
+    const loadedFromShare = await tryLoadFromShareLink();
     if (loadedFromShare) {
         let myCookieBanner = new CookieBanner();
         myCookieBanner.run();

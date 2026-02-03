@@ -17,6 +17,64 @@ Then run
 
 Open the indicated url in a browser window.
 
+## Optional: quick local commands (Justfile)
+
+If you have `just` installed (macOS: `brew install just`), you can use the repo's `justfile`:
+
+- `just dev-web` (frontend only)
+- `just dev-server` (backend only)
+- `just dev-all` (frontend + backend together)
+- `just serve` (build frontend and serve it from Go on `:8080`)
+
+## Optional: Share backend (short links)
+
+The community edition can run fully client-side, but the default share-link mechanism can produce very long URLs.
+This repo includes an optional Go + SQLite backend that stores shared schemas and returns a short UUID-based link.
+
+### Run the backend
+
+In a separate terminal:
+
+```sh
+cd server
+go run ./cmd/share-server
+```
+
+The server listens on `:8080` by default and exposes:
+
+- `POST /api/shares` (create share)
+- `PUT /api/shares/{uuid}` (update existing share)
+- `GET /api/shares/{uuid}` (get schema)
+
+`POST` and `PUT` are protected by a single server-wide password. The client can send the password once (in the request body) and the server will respond with an HttpOnly session cookie.
+
+`GET` is public: anyone with the UUID link can open the shared schema.
+
+When running `npm run dev`, Vite proxies `/api/*` to `http://localhost:8080`, so cookies/sessions work without CORS hassle.
+
+### Environment variables
+
+Set these when needed:
+
+- `EDS_SHARE_ADDR` (default `:8080`)
+- `EDS_SHARE_DB_DRIVER` (default `sqlite`; set to `postgres` for PostgreSQL)
+- `EDS_SHARE_DB` (SQLite file path, default `./data/shares.db`)
+- `EDS_SHARE_DB_DSN` (PostgreSQL DSN, required when `EDS_SHARE_DB_DRIVER=postgres`)
+- `EDS_SHARE_PASSWORD` (default `ChangeMe123!`)
+- `EDS_SHARE_STATIC_DIR` - if set, the Go server also serves the frontend static files from this directory (SPA fallback to `index.html`).
+- `EDS_SHARE_SESSION_TTL_HOURS` (default `168`)
+- `EDS_SHARE_MAX_BODY_BYTES` (default `8388608`)
+- `EDS_SHARE_COOKIE` (default `eds_session`)
+- `EDS_SHARE_COOKIE_SECURE` (default `false` for localhost)
+- `EDS_SHARE_ALLOWED_ORIGIN` (default empty; set if you are not using the Vite proxy)
+
+Example PostgreSQL DSN:
+
+```sh
+export EDS_SHARE_DB_DRIVER=postgres
+export EDS_SHARE_DB_DSN='postgres://user:pass@localhost:5432/eendraadschema?sslmode=disable'
+```
+
 A single file version can be built using
 ```npm run build```
 

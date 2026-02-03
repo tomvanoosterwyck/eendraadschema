@@ -19,6 +19,17 @@ export default defineConfig({
     define: {
         BUILD_DATE: JSON.stringify(formatDate()) // Injects current date/time
     },
+    server: {
+        proxy: {
+            // Go share backend (run separately): cd server && go run .
+            // Go share backend (run separately): cd server && go run ./cmd/share-server
+            // Keeps cookies/sessions working on the same origin during dev.
+            '/api': {
+                target: 'http://localhost:8080',
+                changeOrigin: true
+            }
+        }
+    },
     build: {
         target: "es2017", // Match your tsconfig.json
         /*minify: "terser",*/  // Minifies the output

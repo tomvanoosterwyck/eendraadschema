@@ -290,8 +290,9 @@ globalThis.exportjson = (saveAs: boolean = true) => { // Indien de boolean false
 }
 
 /**
- * Maakt een deelbare link (alles zit in de URL hash).
+ * Legacy: maakt een deelbare link (alles zit in de URL hash).
  * We gebruiken hetzelfde EDS004 compressie-formaat als opslaan, maar dan base64url zodat het veilig in een URL past.
+ * Nieuwere (korte) deel-links gebruiken de Go backend en zitten in copyShareLink().
  */
 globalThis.getShareLink = () => {
 
@@ -329,7 +330,62 @@ globalThis.getShareLink = () => {
 }
 
 globalThis.copyShareLink = async () => {
-    const link = globalThis.getShareLink();
+    function uint8ArrayToBase64(uint8Array: Uint8Array): string {
+        const CHUNK_SIZE = 0x8000;
+        let binaryString = '';
+        for (let i = 0; i < uint8Array.length; i += CHUNK_SIZE) {
+            binaryString += String.fromCharCode.apply(
+                null,
+                uint8Array.subarray(i, i + CHUNK_SIZE)
+            );
+        }
+        return btoa(binaryString);
+    }
+
+    function buildShareSchemaText(): string {
+        const origtext: string = globalThis.structure.toJsonObject(true);
+        try {
+            if (globalThis.structure.properties.disableEDSCompression == true) throw new Error('Compression is disabled');
+            const encoder = new TextEncoder();
+            const inputBytes = new Uint8Array(encoder.encode(origtext));
+            const deflated = new Uint8Array(pako.deflate(inputBytes));
+            const b64 = uint8ArrayToBase64(deflated);
+            return 'EDS0040000' + b64;
+        } catch (error) {
+            console.log('Terugvallen naar TXT-share vanwege compressiefout: ' + error);
+            return 'TXT0040000' + origtext;
+        }
+    }
+
+    const baseUrl = window.location.href.split('#')[0];
+    const schemaText = buildShareSchemaText();
+
+    const password = prompt('Server-wachtwoord voor delen:', '');
+    if (password === null) return; // user canceled
+    if (password.trim().length === 0) {
+        alert('Server-wachtwoord is verplicht om te kunnen delen.');
+        return;
+    }
+
+    let link: string | null = null;
+    try {
+        const resp = await fetch('/api/shares', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ schema: schemaText, password, baseUrl })
+        });
+
+        if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error('Share API error: ' + resp.status + ' ' + text);
+        }
+        const data = await resp.json() as { id: string, url?: string };
+        link = data.url || (baseUrl + '#share=' + data.id);
+    } catch (e) {
+        console.warn('Kon de share-server niet bereiken; val terug op legacy deel-link.', e);
+        link = globalThis.getShareLink();
+    }
 
     try {
         if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
@@ -816,7 +872,7 @@ export function showFilePage() {
                                     <button style="font-size:14px" onclick="copyShareLink()">Kopieer deel-link</button>
                                 </td>
                                 <td style="vertical-align:top;padding:7px">
-                                    Maakt een link om dit schema te delen. Alles zit in de URL (geen server).
+                                    Maakt een link om dit schema te delen. Het schema wordt opgeslagen op de server zodat de link kort blijft.
                                 </td>
                             </tr>
                         </table>

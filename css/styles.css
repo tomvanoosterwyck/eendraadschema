@@ -635,6 +635,29 @@ table.html_edit_table td.hl-collapse-cell .hl-collapse-icon {
   margin-bottom: 8px;
 }
 
+.eds-tree-modal-preview {
+  width: 160px;
+  height: 96px;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.eds-tree-modal-preview svg {
+  display: block;
+}
+
+@media (max-width: 560px) {
+  .eds-tree-modal-preview {
+    display: none;
+  }
+}
+
 .eds-tree-modal-title {
   font-weight: 700;
   color: var(--text);
@@ -663,6 +686,42 @@ table.html_edit_table td.hl-collapse-cell .hl-collapse-icon {
   max-height: calc(88vh - 64px);
   overflow: auto;
   padding-right: 6px;
+}
+
+/* Structured view for element settings in the tree modal */
+.eds-tree-modal-body .eds-prop-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.eds-tree-modal-body .eds-prop-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--surface-1);
+  line-height: 1.35;
+}
+
+.eds-tree-modal-body .eds-prop-row:empty {
+  display: none;
+}
+
+.eds-tree-modal-body .eds-prop-section-spacer {
+  height: 2px;
+  margin: 2px 0;
+  border-top: 1px dashed var(--border);
+}
+
+/* Make controls breathe a bit inside rows */
+.eds-tree-modal-body .eds-prop-row input[type="text"],
+.eds-tree-modal-body .eds-prop-row select {
+  margin: 2px 2px;
+}
+
+.eds-tree-modal-body .eds-inline-checkbox-label {
+  cursor: pointer;
+  user-select: none;
 }
 
 html[data-theme="dark"] table.html_edit_table.eds-tree-flash td:nth-child(2) {
