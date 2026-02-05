@@ -1,0 +1,122 @@
+# Default values for eendraadschema.
+
+replicaCount: 1
+
+image:
+  repository: "ghcr.io/your-org/your-repo"
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: eendraadschema.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources: {}
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClassName: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+  mountPath: /app/data
+
+# Application configuration (rendered as env vars).
+# These correspond 1:1 to the Go server's supported EDS_SHARE_* variables.
+config:
+  addr: ":8080" # EDS_SHARE_ADDR
+
+  db:
+    driver: "sqlite" # EDS_SHARE_DB_DRIVER (sqlite|postgres)
+    sqlitePath: "/app/data/shares.db" # EDS_SHARE_DB
+    # For Postgres, set secrets.dbDsn (EDS_SHARE_DB_DSN)
+
+  staticDir: "/app/dist" # EDS_SHARE_STATIC_DIR
+
+  cookie:
+    name: "eds_session" # EDS_SHARE_COOKIE
+    secure: false # EDS_SHARE_COOKIE_SECURE
+
+  sessionTTLHours: 168 # EDS_SHARE_SESSION_TTL_HOURS
+  maxBodyBytes: 8388608 # EDS_SHARE_MAX_BODY_BYTES
+  allowedOrigin: "" # EDS_SHARE_ALLOWED_ORIGIN
+
+secrets:
+  # If set, chart will NOT create a secret and will reference this existing one.
+  existingSecret: ""
+
+  # Keys inside the secret (both for created and existing).
+  passwordKey: EDS_SHARE_PASSWORD
+  dbDsnKey: EDS_SHARE_DB_DSN
+
+  # If you leave these empty, the env vars are not set and the app defaults apply.
+  password: "" # EDS_SHARE_PASSWORD
+  dbDsn: "" # EDS_SHARE_DB_DSN
+
+  # Extra secret key/value pairs to add to the created secret.
+  extra: {}
+
+extraEnv: []
+extraEnvFrom: []
+
+probes:
+  liveness:
+    enabled: true
+    path: /api/healthz
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 6
+  readiness:
+    enabled: true
+    path: /api/healthz
+    initialDelaySeconds: 2
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 6

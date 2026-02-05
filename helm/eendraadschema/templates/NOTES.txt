@@ -1,0 +1,17 @@
+1. Get the application URL:
+
+{{- if .Values.ingress.enabled }}
+  Ingress hosts:
+  {{- range .Values.ingress.hosts }}
+  - http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+  {{- end }}
+{{- else }}
+  Run:
+    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "eendraadschema.fullname" . }} 8080:{{ .Values.service.port }}
+  Then open:
+    http://127.0.0.1:8080
+{{- end }}
+
+2. Database configuration:
+  - SQLite (default): persistence.enabled=true is recommended.
+  - External Postgres: set config.db.driver=postgres and provide EDS_SHARE_DB_DSN via secrets.dbDsn or an existing secret.
