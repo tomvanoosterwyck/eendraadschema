@@ -466,6 +466,88 @@ ul#minitabs li.menu-item-right {
   padding: 12px 8px 8px 8px; /* Padding to create the empty border effect */
 }
 
+/* Modernize legacy config pages (tables/buttons/inputs) without changing UX */
+
+/* Many config pages use old-school tables with `border` and `bgcolor` attributes.
+   Keep structure, but make them feel like modern cards/tables. */
+#configsection table[border] {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  border-collapse: separate !important;
+  border-spacing: 0;
+  background-color: var(--bg);
+}
+
+#configsection table[border] td,
+#configsection table[border] th {
+  border: 0;
+  padding: 10px;
+}
+
+/* Replace legacy LightGrey headers with theme surface. */
+#configsection tr[bgcolor="LightGrey"] td,
+#configsection tr[bgcolor="LightGrey"] th,
+#configsection td[bgcolor="LightGrey"] {
+  background-color: var(--surface-2) !important;
+  color: var(--text);
+}
+
+/* Inner data tables: subtle separators + header styling. */
+#configsection table[border] thead th {
+  background-color: var(--surface-2);
+  font-weight: 700;
+}
+
+#configsection table[border] tbody tr + tr td {
+  border-top: 1px solid var(--border);
+}
+
+#configsection table[border] tbody tr:hover td {
+  background-color: var(--surface-1);
+}
+
+#configsection button {
+  background: var(--surface-1);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-weight: 600;
+}
+
+#configsection button:hover {
+  background-color: var(--hover);
+}
+
+#configsection input[type="text"],
+#configsection input[type="search"],
+#configsection input[type="email"],
+#configsection input[type="password"],
+#configsection textarea {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+#configsection input[type="text"]:focus,
+#configsection input[type="search"]:focus,
+#configsection input[type="email"]:focus,
+#configsection input[type="password"]:focus,
+#configsection textarea:focus,
+#configsection button:focus {
+  outline: 2px solid var(--menu-current);
+  outline-offset: 2px;
+}
+
+#configsection code {
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+
 #canvas_2col {
   display: flex;
   position: absolute;

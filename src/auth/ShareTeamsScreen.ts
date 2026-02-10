@@ -234,6 +234,215 @@ function setHtml(id: string, value: string) {
     if (el) el.innerHTML = value;
 }
 
+function closeShareVersionsModal() {
+    const overlay = document.getElementById("stm_share_versions_modal_overlay");
+    if (overlay && overlay.parentElement) {
+        overlay.parentElement.removeChild(overlay);
+    }
+}
+
+async function openShareVersionsModal(shareId: string, token: string): Promise<void> {
+    closeShareVersionsModal();
+
+    const overlay = document.createElement("div");
+    overlay.id = "stm_share_versions_modal_overlay";
+    overlay.classList.add("popup-overlay");
+
+    const popup = document.createElement("div");
+    popup.classList.add("popup");
+    popup.style.width = "min(980px, calc(100vw - 24px))";
+    popup.style.maxHeight = "min(80vh, 720px)";
+    popup.style.overflow = "auto";
+
+    const title = document.createElement("h3");
+    title.textContent = "Share versies";
+
+    const headerRow = document.createElement("div");
+    headerRow.style.display = "flex";
+    headerRow.style.alignItems = "center";
+    headerRow.style.gap = "10px";
+
+    const shareLabel = document.createElement("div");
+    shareLabel.innerHTML = `Share: <code>${shareId}</code>`;
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.textContent = "Sluiten";
+    closeBtn.style.marginLeft = "auto";
+    closeBtn.addEventListener("click", () => closeShareVersionsModal());
+
+    headerRow.appendChild(shareLabel);
+    headerRow.appendChild(closeBtn);
+
+    const status = document.createElement("div");
+    status.id = "stm_share_versions_status";
+    status.style.marginTop = "8px";
+    status.textContent = "Laden...";
+
+    const container = document.createElement("div");
+    container.style.marginTop = "10px";
+
+    popup.appendChild(title);
+    popup.appendChild(headerRow);
+    popup.appendChild(status);
+    popup.appendChild(container);
+
+    overlay.appendChild(popup);
+    document.body.appendChild(overlay);
+    overlay.style.visibility = "visible";
+    overlay.style.pointerEvents = "auto";
+
+    // Close when clicking outside.
+    overlay.addEventListener("mousedown", (ev: MouseEvent) => {
+        if (ev.target === overlay) closeShareVersionsModal();
+    });
+
+    // Close on Escape.
+    window.addEventListener(
+        "keydown",
+        function onKeyDown(ev: KeyboardEvent) {
+            if (ev.key === "Escape") {
+                window.removeEventListener("keydown", onKeyDown);
+                closeShareVersionsModal();
+            }
+        }
+    );
+
+    let versions: ShareVersionItem[] = [];
+    try {
+        versions = await fetchJSON<ShareVersionItem[]>(
+            `/api/shares/${encodeURIComponent(shareId)}/versions`,
+            token,
+            { method: "GET" }
+        );
+    } catch (e: any) {
+        status.innerHTML = `<span class="highlight-warning">Fout: ${String(e?.message || e)}</span>`;
+        return;
+    }
+
+    if (!Array.isArray(versions) || versions.length === 0) {
+        status.textContent = "Geen versies";
+        return;
+    }
+    status.textContent = `${versions.length} versies`;
+
+    const tableWrap = document.createElement("div");
+    tableWrap.style.overflow = "auto";
+
+    const table = document.createElement("table");
+    table.setAttribute("border", "1px");
+    table.style.borderCollapse = "collapse";
+    table.style.width = "100%";
+
+    const thead = document.createElement("thead");
+    const headTr = document.createElement("tr");
+    headTr.setAttribute("bgcolor", "LightGrey");
+
+    const thCreated = document.createElement("th");
+    thCreated.align = "left";
+    thCreated.textContent = "Gemaakt";
+
+    const thVer = document.createElement("th");
+    thVer.align = "left";
+    thVer.textContent = "Versie";
+
+    const thBy = document.createElement("th");
+    thBy.align = "left";
+    thBy.textContent = "Door";
+
+    const thActions = document.createElement("th");
+    thActions.align = "left";
+    thActions.textContent = "Acties";
+
+    headTr.appendChild(thCreated);
+    headTr.appendChild(thVer);
+    headTr.appendChild(thBy);
+    headTr.appendChild(thActions);
+    thead.appendChild(headTr);
+
+    const tbody = document.createElement("tbody");
+
+    for (const v of versions.slice(0, 200)) {
+        const tr = document.createElement("tr");
+
+        const tdCreated = document.createElement("td");
+        tdCreated.textContent = formatIso(v.createdAt);
+
+        const tdId = document.createElement("td");
+        const code = document.createElement("code");
+        code.textContent = v.id;
+        tdId.appendChild(code);
+
+        const tdBy = document.createElement("td");
+        tdBy.textContent = v.createdBySub ? String(v.createdBySub) : "";
+
+        const tdActions = document.createElement("td");
+
+        const btnOpen = document.createElement("button");
+        btnOpen.type = "button";
+        btnOpen.style.fontSize = "14px";
+        btnOpen.textContent = "Open";
+        btnOpen.addEventListener("click", async () => {
+            const ok = confirm("Dit zal je huidige schema vervangen. Doorgaan?");
+            if (!ok) return;
+            try {
+                const data = await fetchJSON<{ schema: string }>(
+                    `/api/shares/${encodeURIComponent(shareId)}/versions/${encodeURIComponent(v.id)}`,
+                    token,
+                    { method: "GET" }
+                );
+                if (!data?.schema) {
+                    alert("Versie bevat geen schema.");
+                    return;
+                }
+                globalThis.currentShareId = shareId;
+                EDStoStructure(data.schema, true, true);
+                globalThis.fileAPIobj.clear();
+                closeShareVersionsModal();
+                globalThis.topMenu.selectMenuItemByName("Eéndraadschema");
+            } catch (e: any) {
+                alert(`Kon versie niet openen: ${String(e?.message || e)}`);
+            }
+        });
+
+        const btnRestore = document.createElement("button");
+        btnRestore.type = "button";
+        btnRestore.style.fontSize = "14px";
+        btnRestore.style.marginLeft = "8px";
+        btnRestore.textContent = "Herstel";
+        btnRestore.addEventListener("click", async () => {
+            const ok = confirm("Herstellen zal de share in de cloud overschrijven. Doorgaan?");
+            if (!ok) return;
+            try {
+                await fetchJSON<any>(
+                    `/api/shares/${encodeURIComponent(shareId)}/versions/${encodeURIComponent(v.id)}/restore`,
+                    token,
+                    { method: "POST" }
+                );
+                alert("Hersteld.");
+                closeShareVersionsModal();
+                await refreshShares(token);
+            } catch (e: any) {
+                alert(`Kon niet herstellen: ${String(e?.message || e)}`);
+            }
+        });
+
+        tdActions.appendChild(btnOpen);
+        tdActions.appendChild(btnRestore);
+
+        tr.appendChild(tdCreated);
+        tr.appendChild(tdId);
+        tr.appendChild(tdBy);
+        tr.appendChild(tdActions);
+        tbody.appendChild(tr);
+    }
+
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    tableWrap.appendChild(table);
+    container.appendChild(tableWrap);
+}
+
 async function refreshShares(token: string): Promise<void> {
     setText("stm_shares_status", "Laden...");
     const tbody = document.getElementById("stm_shares_body") as HTMLTableSectionElement | null;
@@ -301,74 +510,7 @@ async function refreshShares(token: string): Promise<void> {
                 alert("Niet ingelogd.");
                 return;
             }
-            let versions: ShareVersionItem[] = [];
-            try {
-                versions = await fetchJSON<ShareVersionItem[]>(
-                    `/api/shares/${encodeURIComponent(s.id)}/versions`,
-                    t,
-                    { method: "GET" }
-                );
-            } catch (e: any) {
-                alert(`Kon versies niet laden: ${String(e?.message || e)}`);
-                return;
-            }
-            if (!Array.isArray(versions) || versions.length === 0) {
-                alert("Geen versies gevonden.");
-                return;
-            }
-            const lines = versions
-                .slice(0, 50)
-                .map((v, idx) => `${idx + 1} = ${v.id}  (${formatIso(v.createdAt)})`);
-            const pick = prompt(
-                `Kies versie nummer om te openen/herstellen:\n${lines.join("\n")}`,
-                "1"
-            );
-            if (!pick) return;
-            const n = parseInt(pick, 10);
-            if (!Number.isFinite(n) || n < 1 || n > versions.length) return;
-            const ver = versions[n - 1];
-
-            const action = prompt("Actie:\n1 = Open (preview/load)\n2 = Herstel (maakt deze versie de huidige)", "1");
-            if (!action) return;
-
-            if (action === "1") {
-                try {
-                    const data = await fetchJSON<{ schema: string }>(
-                        `/api/shares/${encodeURIComponent(s.id)}/versions/${encodeURIComponent(ver.id)}`,
-                        t,
-                        { method: "GET" }
-                    );
-                    if (!data?.schema) {
-                        alert("Versie bevat geen schema.");
-                        return;
-                    }
-                    const ok = confirm("Dit zal je huidige schema vervangen. Doorgaan?");
-                    if (!ok) return;
-                    globalThis.currentShareId = s.id;
-                    EDStoStructure(data.schema, true, true);
-                    globalThis.fileAPIobj.clear();
-                    globalThis.topMenu.selectMenuItemByName("Eéndraadschema");
-                } catch (e: any) {
-                    alert(`Kon versie niet openen: ${String(e?.message || e)}`);
-                }
-                return;
-            }
-
-            if (action === "2") {
-                const ok = confirm("Herstellen zal de share in de cloud overschrijven. Doorgaan?");
-                if (!ok) return;
-                try {
-                    await fetchJSON<any>(
-                        `/api/shares/${encodeURIComponent(s.id)}/versions/${encodeURIComponent(ver.id)}/restore`,
-                        t,
-                        { method: "POST" }
-                    );
-                    alert("Hersteld.");
-                    await refreshShares(t);
-                } catch (e: any) {
-                    alert(`Kon niet herstellen: ${String(e?.message || e)}`);
-                }
-            }
+            await openShareVersionsModal(s.id, t);
         });
 
         const btnOpen = document.createElement("button");
