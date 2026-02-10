@@ -10,6 +10,7 @@
 
   --sideBarWidth: 0px; /* Can be overwritte in propstyles */
 
+
   --total-offset: calc(var(--menu-height) + var(--ribbon-height) + var(--status-bar-height));
 
   --EDStekenFoutKleur: #8C5A00; /* Very dark amber */
@@ -248,6 +249,40 @@ ul#minitabs a:hover {
 
 ul#minitabs li.menu-item-right {
   margin-left: auto;
+  position: relative;
+}
+
+.topmenu-hamburger {
+  padding: 4px 10px;
+}
+
+.topmenu-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background-color: var(--menu-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  z-index: 1000;
+}
+
+.topmenu-dropdown[hidden] {
+  display: none !important;
+}
+
+.topmenu-dropdown:not([hidden]) {
+  display: flex;
+}
+
+.topmenu-auth-user {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
 }
 
 .theme-toggle {
@@ -444,6 +479,7 @@ ul#minitabs li.menu-item-right {
   display: flex;
   flex-direction: row; /* Ensure columns are side by side */
 }
+
 
 #outerdiv {
   display: flex;

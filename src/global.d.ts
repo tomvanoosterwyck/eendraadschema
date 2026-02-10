@@ -20,6 +20,7 @@ declare global {
         SITPLANVIEW_ZOOMINTERVAL: {MIN: number, MAX: number};
         SITPLANVIEW_DEFAULT_SCALE: number;
         fileAPIobj: importExportUsingFileAPI;
+        currentShareId: string | null;
         CONFIGPRINTPAGE: string;
         EXAMPLE0: string;
         EXAMPLE1: string;
@@ -60,6 +61,17 @@ declare global {
 
         getShareLink: () => string;
         copyShareLink: () => Promise<void>;
+
+        saveSchema: () => Promise<void>;
+        saveSchemaAs: () => Promise<void>;
+
+        authLogin: () => Promise<void>;
+        authLogout: () => Promise<void>;
+        authWhoAmI: () => Promise<void>;
+        openShareManager: () => Promise<void>;
+        openTeamManager: () => Promise<void>;
+        openShareTeamsScreen: () => Promise<void>;
+        openAdminScreen: () => Promise<void>;
     }
 }
 

@@ -249,7 +249,8 @@ export class AutoSaver {
                             currentDate.getHours().toString().padStart(2, '0') + ":" +
                             currentDate.getMinutes().toString().padStart(2, '0') + ":" +
                             currentDate.getSeconds().toString().padStart(2, '0'),
-            recovery: recovery
+            recovery: recovery,
+            shareId: (globalThis as any).currentShareId || null
         }
         
         await Promise.all([

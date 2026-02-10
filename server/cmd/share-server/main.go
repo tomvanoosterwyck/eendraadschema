@@ -31,7 +31,10 @@ func main() {
 	}
 	defer st.Close()
 
-	h := api.New(cfg, st)
+	h, err := api.New(cfg, st)
+	if err != nil {
+		log.Fatalf("failed to init api: %v", err)
+	}
 	apiHandler := h.Routes()
 
 	staticHandler, err := web.StaticHandler(cfg.StaticDir)

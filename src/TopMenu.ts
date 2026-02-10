@@ -18,6 +18,12 @@ export class TopMenu {
     }
 
     private renderMenu() {
+        // Preserve any "right-side" widgets that were appended to the <ul>
+        // (e.g. hamburger/auth dropdown). Those are not part of the menuItems array.
+        const preserved = Array.from(this.ulElement.children).filter((el) =>
+            (el as HTMLElement).classList?.contains('menu-item-right')
+        ) as HTMLElement[];
+
         this.ulElement.innerHTML = ''; // Clear any existing content
         this.menuItems.forEach(item => {
             const liElement = document.createElement('li');
@@ -34,6 +40,9 @@ export class TopMenu {
             liElement.appendChild(aElement);
             this.ulElement.appendChild(liElement);
         });
+
+        // Re-attach preserved widgets.
+        preserved.forEach((el) => this.ulElement.appendChild(el));
     }
 
     private selectItem(selectedElement: HTMLAnchorElement) {
@@ -43,6 +52,21 @@ export class TopMenu {
 
         // Add 'current' ID to the clicked <a> element
         selectedElement.id = 'current';
+    }
+
+    private findAnchorByName(name: string): HTMLAnchorElement | null {
+        return (
+            Array.from(this.ulElement.querySelectorAll('a')).find(
+                a => (a as HTMLAnchorElement).innerText === name
+            ) as HTMLAnchorElement | undefined
+        ) || null;
+    }
+
+    public highlightMenuItemByName(name: string) {
+        const aElement = this.findAnchorByName(name);
+        if (aElement) {
+            this.selectItem(aElement);
+        }
     }
 
     public resetToFirstItem() {
@@ -55,12 +79,26 @@ export class TopMenu {
     public selectMenuItemByName(name: string) { 
         const item = this.menuItems.find(menuItem => menuItem.name === name); 
         if (item) { 
-            const aElement = Array.from(this.ulElement.querySelectorAll('a')).find(a => a.innerText === name); 
-            if (aElement) { 
-                this.selectItem(aElement as HTMLAnchorElement); 
-                item.callback(); 
-            } 
+            const aElement = this.findAnchorByName(name);
+            if (aElement) {
+                this.selectItem(aElement);
+                item.callback();
+            }
         } 
+    }
+
+    public setMenuItems(menuItems: MenuItem[]) {
+        const current = this.ulElement.querySelector('a#current') as HTMLAnchorElement | null;
+        const currentName = current?.innerText;
+
+        this.menuItems = menuItems;
+        this.renderMenu();
+
+        if (currentName && this.menuItems.some(mi => mi.name === currentName)) {
+            this.highlightMenuItemByName(currentName);
+        } else {
+            this.resetToFirstItem();
+        }
     }
 
     public selectMenuItemByOrdinal(nr: number) {

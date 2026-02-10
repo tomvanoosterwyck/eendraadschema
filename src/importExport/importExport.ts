@@ -1,6 +1,7 @@
 import { Hierarchical_List } from "../Hierarchical_List";
 import { SituationPlan } from "../sitplan/SituationPlan";
 import { Electro_Item } from "../List_Item/Electro_Item";
+import { oidcAuth } from "../auth/OidcAuth";
 
 declare var pako: any;
 
@@ -104,6 +105,7 @@ globalThis.importjson = (event) => {
     var text:string = "";
 
     reader.onload = function(){
+        globalThis.currentShareId = null;
         EDStoStructure(reader.result.toString());
         if (globalThis.structure.sitplan) globalThis.structure.sitplan.activePage = 1;
     };
@@ -137,6 +139,7 @@ globalThis.appendjson = function(event) {
 globalThis.loadClicked = async () => {
     if ((window as any).showOpenFilePicker) { // Use fileAPI
         let data = await globalThis.fileAPIobj.readFile();
+        globalThis.currentShareId = null;
         EDStoStructure(data);
         if (globalThis.structure.sitplan) globalThis.structure.sitplan.activePage = 1;
     } else { // Legacy
@@ -289,6 +292,105 @@ globalThis.exportjson = (saveAs: boolean = true) => { // Indien de boolean false
     globalThis.propUpload(text);
 }
 
+function buildShareSchemaText(): { schemaText: string; origJson: string } {
+    function uint8ArrayToBase64(uint8Array: Uint8Array): string {
+        const CHUNK_SIZE = 0x8000;
+        let binaryString = '';
+        for (let i = 0; i < uint8Array.length; i += CHUNK_SIZE) {
+            binaryString += String.fromCharCode.apply(null, uint8Array.subarray(i, i + CHUNK_SIZE));
+        }
+        return btoa(binaryString);
+    }
+
+    const origJson: string = globalThis.structure.toJsonObject(true);
+    try {
+        if (globalThis.structure.properties.disableEDSCompression == true) throw new Error('Compression is disabled');
+        const encoder = new TextEncoder();
+        const inputBytes = new Uint8Array(encoder.encode(origJson));
+        const deflated = new Uint8Array(pako.deflate(inputBytes));
+        const b64 = uint8ArrayToBase64(deflated);
+        return { schemaText: 'EDS0040000' + b64, origJson };
+    } catch (error) {
+        console.log('Terugvallen naar TXT-save vanwege compressiefout: ' + error);
+        return { schemaText: 'TXT0040000' + origJson, origJson };
+    }
+}
+
+async function saveToShareDb(createNew: boolean): Promise<void> {
+    if (!oidcAuth.isEnabled()) {
+        alert('Cloud opslaan vereist OIDC, maar OIDC is niet geconfigureerd.');
+        return;
+    }
+    const accessToken = await oidcAuth.getAccessToken();
+    if (!accessToken) {
+        // Not authenticated => treat as normal local save behavior.
+        globalThis.exportjson(createNew ? true : false);
+        return;
+    }
+
+    const baseUrl = window.location.href.split('#')[0];
+    const { schemaText, origJson } = buildShareSchemaText();
+
+    let shareId: string | null = createNew ? null : (globalThis.currentShareId || null);
+    if (!shareId) createNew = true;
+
+    try {
+        if (createNew) {
+            const resp = await fetch('/api/shares', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + accessToken
+                },
+                credentials: 'include',
+                body: JSON.stringify({ schema: schemaText, baseUrl })
+            });
+            if (!resp.ok) {
+                alert(`Kon niet opslaan in cloud: ${resp.status} ${await resp.text()}`);
+                return;
+            }
+            const data = await resp.json() as { id: string };
+            if (!data?.id) {
+                alert('Kon niet opslaan in cloud (ongeldig antwoord).');
+                return;
+            }
+            globalThis.currentShareId = String(data.id);
+            if (globalThis.autoSaver) globalThis.autoSaver.saveManually('TXT0040000' + origJson);
+            alert(`Opgeslagen in cloud. Share ID: ${data.id}`);
+            return;
+        }
+
+        // Update existing share
+        const resp = await fetch(`/api/shares/${encodeURIComponent(String(shareId))}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + accessToken
+            },
+            credentials: 'include',
+            body: JSON.stringify({ schema: schemaText })
+        });
+        if (!resp.ok) {
+            alert(`Kon niet opslaan in cloud: ${resp.status} ${await resp.text()}`);
+            return;
+        }
+        if (globalThis.autoSaver) globalThis.autoSaver.saveManually('TXT0040000' + origJson);
+        return;
+    } catch (e: any) {
+        alert(`Kon niet opslaan in cloud: ${String(e?.message || e)}`);
+    }
+}
+
+// "Traditionele" save: als je authenticated bent => cloud (DB), anders => lokaal (bestaand gedrag)
+globalThis.saveSchema = async () => {
+    await saveToShareDb(false);
+};
+
+// Save-as: als je authenticated bent => nieuwe share (nieuw ID), anders => lokaal save-as/export
+globalThis.saveSchemaAs = async () => {
+    await saveToShareDb(true);
+};
+
 /**
  * Legacy: maakt een deelbare link (alles zit in de URL hash).
  * We gebruiken hetzelfde EDS004 compressie-formaat als opslaan, maar dan base64url zodat het veilig in een URL past.
@@ -360,31 +462,52 @@ globalThis.copyShareLink = async () => {
     const baseUrl = window.location.href.split('#')[0];
     const schemaText = buildShareSchemaText();
 
-    const password = prompt('Server-wachtwoord voor delen:', '');
-    if (password === null) return; // user canceled
-    if (password.trim().length === 0) {
-        alert('Server-wachtwoord is verplicht om te kunnen delen.');
-        return;
+    const oidcEnabled = oidcAuth.isEnabled();
+    let password: string | null = null;
+    let accessToken: string | null = null;
+
+    if (oidcEnabled) {
+        accessToken = await oidcAuth.getAccessToken();
+        if (!accessToken) {
+            const ok = confirm('Aanmelden is vereist om een deel-link aan te maken. Nu aanmelden?');
+            if (ok) await oidcAuth.login();
+            return;
+        }
+    } else {
+        password = prompt('Server-wachtwoord voor delen:', '');
+        if (password === null) return; // user canceled
+        if (password.trim().length === 0) {
+            alert('Server-wachtwoord is verplicht om te kunnen delen.');
+            return;
+        }
     }
 
     let link: string | null = null;
     try {
         const resp = await fetch('/api/shares', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                ...(accessToken ? { 'Authorization': 'Bearer ' + accessToken } : {})
+            },
             credentials: 'include',
-            body: JSON.stringify({ schema: schemaText, password, baseUrl })
+            body: JSON.stringify({ schema: schemaText, password: password || undefined, baseUrl })
         });
 
         if (!resp.ok) {
             const text = await resp.text();
+            if (resp.status === 401 && oidcEnabled) {
+                alert('Niet geautoriseerd. Probeer opnieuw aan te melden.');
+            }
             throw new Error('Share API error: ' + resp.status + ' ' + text);
         }
         const data = await resp.json() as { id: string, url?: string };
         link = data.url || (baseUrl + '#share=' + data.id);
+        if (data?.id) globalThis.currentShareId = String(data.id);
     } catch (e) {
         console.warn('Kon de share-server niet bereiken; val terug op legacy deel-link.', e);
         link = globalThis.getShareLink();
+        globalThis.currentShareId = null;
     }
 
     try {
@@ -813,14 +936,16 @@ export function showFilePage() {
  
         strleft += '<table border=0><tr><td width=350 style="vertical-align:top;padding:5px">';
         if (globalThis.fileAPIobj.filename != null) { 
-            strleft += '<button style="font-size:14px" onclick="exportjson(saveAs = false)">Opslaan</button>&nbsp;';
-            strleft += '<button style="font-size:14px" onclick="exportjson(saveAs = true)">Opslaan als</button>';
+            strleft += '<button style="font-size:14px" onclick="saveSchema()">Opslaan</button>&nbsp;';
+            strleft += '<button style="font-size:14px" onclick="saveSchemaAs()">Opslaan als</button>&nbsp;';
+            strleft += '<button style="font-size:14px" onclick="exportjson(saveAs = true)">Export</button>';
             strleft += '</td><td style="vertical-align:top;padding:5px">'    
             strleft += 'Laatst geopend of opgeslagen om <b>' + globalThis.fileAPIobj.lastsaved + '</b> met naam <b>' + globalThis.fileAPIobj.filename + '</b><br><br>'
                     +  'Klik links op "Opslaan" om bij te werken'
         } else {
             strleft += 
-                '<button style="font-size:14px" onclick="exportjson(saveAs = true)">Opslaan als</button>' +
+                '<button style="font-size:14px" onclick="saveSchemaAs()">Opslaan als</button>&nbsp;' +
+                '<button style="font-size:14px" onclick="exportjson(saveAs = true)">Export</button>' +
                 '</td><td style="vertical-align:top;padding:7px">' +
                 '<span class="highlight-warning">Uw werk werd nog niet opgeslagen tijdens deze sessie. Klik links op "Opslaan als".</span>';
         }
@@ -835,7 +960,7 @@ export function showFilePage() {
         
     } else { // Legacy
         strleft +=  '<table border=0><tr><td width=350 style="vertical-align:top;padding:7px">';
-        strleft +=  'Bestandsnaam: <span id="settings"><code>' + globalThis.structure.properties.filename + '</code><br><button style="font-size:14px" onclick="exportjson()">Opslaan</button>&nbsp;<button style="font-size:14px" onclick="HL_enterSettings()">Naam wijzigen</button></span>';
+        strleft +=  'Bestandsnaam: <span id="settings"><code>' + globalThis.structure.properties.filename + '</code><br><button style="font-size:14px" onclick="saveSchema()">Opslaan</button>&nbsp;<button style="font-size:14px" onclick="exportjson()">Export</button>&nbsp;<button style="font-size:14px" onclick="HL_enterSettings()">Naam wijzigen</button></span>';
         strleft +=  '</td><td style="vertical-align:top;padding:5px">'
         strleft +=  'U kan het schema opslaan op uw lokale harde schijf voor later gebruik. De standaard-naam is eendraadschema.eds. U kan deze wijzigen door links op "wijzigen" te klikken. ';
         strleft +=  'Klik vervolgens op "opslaan" en volg de instructies van uw browser. '
@@ -869,10 +994,30 @@ export function showFilePage() {
                         <table border=0>
                             <tr>
                                 <td width=350 style="vertical-align:top;padding:5px">
-                                    <button style="font-size:14px" onclick="copyShareLink()">Kopieer deel-link</button>
+                                    <button type="button" style="font-size:14px" onclick="copyShareLink()">Kopieer deel-link</button>
                                 </td>
                                 <td style="vertical-align:top;padding:7px">
                                     Maakt een link om dit schema te delen. Het schema wordt opgeslagen op de server zodat de link kort blijft.
+                                </td>
+                            </tr>
+                            <tr>
+                                <td width=350 style="vertical-align:top;padding:5px">
+                                    <button type="button" style="font-size:14px" onclick="authLogin()">Aanmelden</button>&nbsp;
+                                    <button type="button" style="font-size:14px" onclick="authLogout()">Afmelden</button>&nbsp;
+                                    <button type="button" style="font-size:14px" onclick="authWhoAmI()">Wie ben ik?</button>
+                                </td>
+                                <td style="vertical-align:top;padding:7px">
+                                    Alleen delen/beheer vereist aanmelden. Alle andere functies blijven beschikbaar zonder login.
+                                </td>
+                            </tr>
+                            <tr>
+                                <td width=350 style="vertical-align:top;padding:5px">
+                                    <button type="button" style="font-size:14px" onclick="openShareManager()">Mijn shares</button>&nbsp;
+                                    <button type="button" style="font-size:14px" onclick="openTeamManager()">Teams</button>
+                                    &nbsp;<button type="button" style="font-size:14px" onclick="openShareTeamsScreen()">Beheer</button>
+                                </td>
+                                <td style="vertical-align:top;padding:7px">
+                                    Bekijk je shares, maak teams en nodig mensen uit.
                                 </td>
                             </tr>
                         </table>

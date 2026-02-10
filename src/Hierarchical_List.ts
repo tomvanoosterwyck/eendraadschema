@@ -931,7 +931,7 @@ export class Hierarchical_List {
 
         if (globalThis.autoSaver && globalThis.autoSaver.hasChangesSinceLastManualSave()) {
             output +=  '<span style="display: inline-block; width: 30px;"></span>';
-            output +=  `<div style="margin-top: 5px;margin-bottom: 5px;display: flex; align-items: center; justify-content: center;" class="highlight-warning-big" onclick="exportjson(false)"
+            output +=  `<div style="margin-top: 5px;margin-bottom: 5px;display: flex; align-items: center; justify-content: center;" class="highlight-warning-big" onclick="saveSchema()"
                            onmouseover="this.style.cursor='pointer'" 
                            onmouseout="this.style.cursor='default'">
                            <div style="display: inline-block; vertical-align: middle;"><span class="icon-image" style="font-size:24px;">💾</span></div>

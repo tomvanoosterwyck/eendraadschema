@@ -26,6 +26,9 @@ import { changelog } from "./changelog";
 import { initTheme, onThemeChanged, toggleTheme, type Theme } from "./ThemeManager";
 import { SituationPlanElement } from "./sitplan/SituationPlanElement";
 
+import { initFrontendAuth } from "./auth/frontendAuth";
+import { oidcAuth } from "./auth/OidcAuth";
+
 import "../css/all.css";
 
 // Apply theme as early as possible to avoid a flash.
@@ -40,6 +43,7 @@ globalThis.session = new Session();
 globalThis.appDocStorage = new MultiLevelStorage<any>('appDocStorage', {});
 globalThis.undostruct = new undoRedo(100);
 globalThis.fileAPIobj = new importExportUsingFileAPI();
+globalThis.currentShareId = null;
 
 // When enabled, the hierarchical tree becomes compact and item editing happens in a modal.
 globalThis.treeEditInModal = true;
@@ -748,7 +752,7 @@ globalThis.HL_changeparent = (my_id: number) => {
 globalThis.HL_cancelFilename = () => {
     const settings = document.getElementById("settings");
     if (settings === null) return;
-    settings.innerHTML = '<code>' + globalThis.structure.properties.filename + '</code><br><button style="font-size:14px" onclick="exportjson()">Opslaan</button>&nbsp;<button style="font-size:14px" onclick="HL_enterSettings()">Naam wijzigen</button>';
+    settings.innerHTML = '<code>' + globalThis.structure.properties.filename + '</code><br><button style="font-size:14px" onclick="saveSchema()">Opslaan</button>&nbsp;<button style="font-size:14px" onclick="HL_enterSettings()">Naam wijzigen</button>';
 }
 
 globalThis.HL_changeFilename = () => {
@@ -758,10 +762,10 @@ globalThis.HL_changeFilename = () => {
     if (settings === null) return;
     if (regex.test(filename)) {
         globalThis.structure.properties.setFilename((document.getElementById("filename") as HTMLInputElement).value);
-        settings.innerHTML = '<code>' + globalThis.structure.properties.filename + '</code><br><button style="font-size:14px" onclick="HL_enterSettings()">Wijzigen</button>&nbsp;<button style="font-size:14px" onclick="exportjson()">Opslaan</button>';
+        settings.innerHTML = '<code>' + globalThis.structure.properties.filename + '</code><br><button style="font-size:14px" onclick="HL_enterSettings()">Wijzigen</button>&nbsp;<button style="font-size:14px" onclick="saveSchema()">Opslaan</button>';
     } else {
         globalThis.structure.properties.setFilename((document.getElementById("filename") as HTMLInputElement).value+'.eds');
-        settings.innerHTML = '<code>' + globalThis.structure.properties.filename + '</code><br><button style="font-size:14px" onclick="HL_enterSettings()">Wijzigen</button>&nbsp;<button style="font-size:14px" onclick="exportjson()">Opslaan</button>';
+        settings.innerHTML = '<code>' + globalThis.structure.properties.filename + '</code><br><button style="font-size:14px" onclick="HL_enterSettings()">Wijzigen</button>&nbsp;<button style="font-size:14px" onclick="saveSchema()">Opslaan</button>';
     }
 }
 
@@ -1631,6 +1635,7 @@ function openContactForm() {
 }
 
 function restart_all() {
+    globalThis.currentShareId = null;
     var strleft: string = globalThis.CONFIGPAGE_LEFT;
 
     strleft +=
@@ -1746,6 +1751,7 @@ globalThis.toggleAppView = (type: '2col' | 'config' | 'draw') => {
 }
 
 globalThis.load_example = (nr: number) => {
+    globalThis.currentShareId = null;
     switch (nr) {
         case 0:
             EDStoStructure(globalThis.EXAMPLE0);
@@ -1814,6 +1820,8 @@ container.innerHTML = `
 </div>
 </div>`
 
+
+
 // Configure the app-zone in the HTML
 
 const svgdefs = document.getElementById('svgdefs');
@@ -1848,7 +1856,7 @@ var CONF_differentieel_nat = 30;
 
 let menuItems: MenuItem[]
 
-menuItems = [
+const baseMenuItems: MenuItem[] = [
     { name: 'Nieuw', callback: restart_all },
     { name: 'Bestand', callback: showFilePage },
     { name: 'Eéndraadschema', callback: globalThis.HLRedrawTree },
@@ -1858,15 +1866,71 @@ menuItems = [
     { name: 'Info/Contact', callback: openContactForm }
 ];
 
+function authHeader(token: string | null): Record<string, string> {
+    return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function fetchIsAdmin(token: string): Promise<boolean> {
+    try {
+        const resp = await fetch('/api/me', { headers: authHeader(token) });
+        if (!resp.ok) return false;
+        const data: any = await resp.json();
+        return !!data?.isAdmin;
+    } catch {
+        return false;
+    }
+}
+
+async function refreshAuthTabs(): Promise<void> {
+    if (!oidcAuth.isEnabled()) return;
+
+    const token = await oidcAuth.getAccessToken();
+    const loggedIn = !!token;
+    const isAdmin = token ? await fetchIsAdmin(token) : false;
+
+    const nextMenuItems: MenuItem[] = [
+        ...baseMenuItems.slice(0, 2),
+        ...(loggedIn ? [{ name: 'Beheer', callback: () => { void globalThis.openShareTeamsScreen?.(); } }] : []),
+        ...(isAdmin ? [{ name: 'Admin', callback: () => { void globalThis.openAdminScreen?.(); } }] : []),
+        ...baseMenuItems.slice(2)
+    ];
+
+    PROP_edit_menu(nextMenuItems);
+    globalThis.topMenu.setMenuItems(nextMenuItems);
+}
+
+menuItems = [...baseMenuItems];
+
 PROP_edit_menu(menuItems);
 
 globalThis.topMenu = new TopMenu('minitabs', 'menu-item', menuItems);
+
+let refreshAuthMenuWidget: (() => Promise<void>) | null = null;
 
 // Add a theme toggle button at the right side of the top menu.
 const minitabs = document.getElementById('minitabs');
 if (minitabs) {
     const li = document.createElement('li');
     li.className = 'menu-item menu-item-right';
+
+    const hamburgerButton = document.createElement('button');
+    hamburgerButton.type = 'button';
+    hamburgerButton.className = 'theme-toggle topmenu-hamburger';
+    hamburgerButton.id = 'topmenu-hamburger';
+    hamburgerButton.textContent = '☰';
+    hamburgerButton.setAttribute('aria-label', 'Menu');
+    hamburgerButton.title = 'Menu';
+
+    const dropdown = document.createElement('div');
+    dropdown.className = 'topmenu-dropdown';
+    dropdown.hidden = true;
+
+    const setOpen = (open: boolean) => {
+        dropdown.hidden = !open;
+        hamburgerButton.setAttribute('aria-expanded', open ? 'true' : 'false');
+    };
+
+    const toggleOpen = () => setOpen(dropdown.hidden);
 
     const button = document.createElement('button');
     button.type = 'button';
@@ -1884,9 +1948,102 @@ if (minitabs) {
         ev.preventDefault();
         ev.stopPropagation();
         toggleTheme();
+        setOpen(false);
     });
 
-    li.appendChild(button);
+    dropdown.appendChild(button);
+
+    // Auth widget (OIDC) next to theme toggle.
+    if (oidcAuth.isEnabled()) {
+        const userLabel = document.createElement('span');
+        userLabel.className = 'topmenu-auth-user';
+
+        const manageButton = document.createElement('button');
+        manageButton.type = 'button';
+        manageButton.className = 'theme-toggle';
+        manageButton.textContent = 'Beheer';
+        manageButton.setAttribute('aria-label', 'Beheer delen en teams');
+        manageButton.title = 'Beheer delen en teams';
+        manageButton.style.display = 'none';
+        manageButton.onclick = async (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (typeof globalThis.openShareTeamsScreen === 'function') {
+                await globalThis.openShareTeamsScreen();
+            } else {
+                alert('Beheer scherm is niet beschikbaar.');
+            }
+            setOpen(false);
+        };
+
+        const authButton = document.createElement('button');
+        authButton.type = 'button';
+        authButton.className = 'theme-toggle';
+
+        const updateAuth = async () => {
+            const profile = await oidcAuth.getProfile();
+            if (profile) {
+                userLabel.textContent = profile.name || profile.email || profile.sub;
+                userLabel.style.display = '';
+                manageButton.style.display = '';
+                authButton.textContent = 'Afmelden';
+                authButton.setAttribute('aria-label', 'Afmelden');
+                authButton.title = 'Afmelden';
+                authButton.onclick = async (ev) => {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    await oidcAuth.logout();
+                    await updateAuth();
+                    await refreshAuthTabs();
+                    setOpen(false);
+                };
+            } else {
+                userLabel.textContent = '';
+                userLabel.style.display = 'none';
+                manageButton.style.display = 'none';
+                authButton.textContent = 'Aanmelden';
+                authButton.setAttribute('aria-label', 'Aanmelden');
+                authButton.title = 'Aanmelden';
+                authButton.onclick = async (ev) => {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    await oidcAuth.login();
+                };
+            }
+
+            await refreshAuthTabs();
+        };
+
+        refreshAuthMenuWidget = updateAuth;
+        // Best-effort initial state (will be refreshed after initFrontendAuth()).
+        void updateAuth();
+
+        dropdown.appendChild(userLabel);
+        dropdown.appendChild(manageButton);
+        dropdown.appendChild(authButton);
+    }
+
+    hamburgerButton.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        toggleOpen();
+    });
+
+    // Close when clicking outside.
+    document.addEventListener('click', (ev) => {
+        if (dropdown.hidden) return;
+        const target = ev.target as Node | null;
+        if (target && li.contains(target)) return;
+        setOpen(false);
+    });
+
+    // Close on Escape.
+    window.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape') setOpen(false);
+    });
+
+    li.appendChild(hamburgerButton);
+    li.appendChild(dropdown);
     minitabs.appendChild(li);
 
     // Keep button label in sync (also updates for system theme changes).
@@ -2038,6 +2195,7 @@ async function tryLoadFromShareLink(): Promise<boolean> {
         }
 
         if (payload.startsWith('EDS') && payload.length > 10) {
+            globalThis.currentShareId = null;
             const header = payload.substring(0, 10); // EDS###0000
             const b64url = payload.substring(10);
             const edsString = header + base64UrlToBase64(b64url);
@@ -2049,6 +2207,7 @@ async function tryLoadFromShareLink(): Promise<boolean> {
         }
 
         if (payload.startsWith('TXT') && payload.length > 10) {
+            globalThis.currentShareId = null;
             const header = payload.substring(0, 10); // TXT###0000
             const encoded = payload.substring(10);
             const txtString = header + decodeURIComponent(encoded);
@@ -2062,6 +2221,7 @@ async function tryLoadFromShareLink(): Promise<boolean> {
         // New format: short share id (UUID) stored server-side.
         if (isUuid(payload)) {
             const shareId = payload;
+            globalThis.currentShareId = shareId;
 
             const resp = await fetch(`/api/shares/${shareId}`, { credentials: 'include' });
 
@@ -2118,8 +2278,16 @@ let recoveryAvailable = false
 let lastSavedStr:string|null = null;
 let lastSavedInfo:any = null;
 
-(async () => {   
+(async () => {
+    await initFrontendAuth();
+    if (refreshAuthMenuWidget) await refreshAuthMenuWidget();
     [lastSavedStr, lastSavedInfo] = await globalThis.autoSaver.loadLastSaved();
+    try {
+        const infoAny: any = lastSavedInfo as any;
+        globalThis.currentShareId = infoAny?.shareId ? String(infoAny.shareId) : null;
+    } catch {
+        globalThis.currentShareId = null;
+    }
     if ((lastSavedStr != null) /* && (lastSavedInfo.recovery == true) */ ) recoveryAvailable = true;
 })().then(async () => {
     const loadedFromShare = await tryLoadFromShareLink();

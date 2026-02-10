@@ -14,3 +14,6 @@ data:
   EDS_SHARE_SESSION_TTL_HOURS: {{ .Values.config.sessionTTLHours | quote }}
   EDS_SHARE_MAX_BODY_BYTES: {{ .Values.config.maxBodyBytes | quote }}
   EDS_SHARE_ALLOWED_ORIGIN: {{ .Values.config.allowedOrigin | quote }}
+  EDS_SHARE_OIDC_ISSUER_URL: {{ .Values.config.oidc.issuerUrl | quote }}
+  EDS_SHARE_OIDC_CLIENT_ID: {{ .Values.config.oidc.clientId | quote }}
+  EDS_SHARE_OIDC_AUDIENCE: {{ .Values.config.oidc.audience | quote }}

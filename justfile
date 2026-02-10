@@ -11,6 +11,9 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 default:
   @just --list
 
+# Run frontend + backend together (dev mode).
+dev: dev-all
+
 # --- Frontend ---
 
 install:
@@ -39,16 +42,33 @@ clean:
 #   EDS_SHARE_DB_DSN=postgres://...
 
 dev-server:
-  mkdir -p server/data
-  cd server && go run ./cmd/share-server
+  cd server && air
 
 # Run frontend + backend together (Ctrl-C stops both).
 # Uses Vite's proxy for /api.
 
 dev-all:
-  trap 'kill 0' EXIT
+  #!/usr/bin/env bash
+  set -euo pipefail
+
   mkdir -p server/data
+
   (cd server && go run ./cmd/share-server) &
+  server_pid=$!
+
+  cleanup() {
+    kill "$server_pid" 2>/dev/null || true
+  }
+  trap cleanup EXIT INT TERM
+
+  # If the server can't bind (port in use, etc.), stop immediately.
+  sleep 0.2
+  if ! kill -0 "$server_pid" 2>/dev/null; then
+    wait "$server_pid" || true
+    echo "share-server failed to start (is port 8080 already in use?)" >&2
+    exit 1
+  fi
+
   yarn dev
 
 # Build the frontend and let the Go server serve it (no Vite).
@@ -58,6 +78,19 @@ serve:
   yarn build
   mkdir -p server/data
   EDS_SHARE_STATIC_DIR="$PWD/dist" (cd server && go run ./cmd/share-server)
+
+# --- Production-ish local run (build artifacts + run binary) ---
+
+prod-build:
+  yarn build
+  mkdir -p bin
+  cd server && go build -o ../bin/share-server ./cmd/share-server
+
+prod-run:
+  mkdir -p server/data
+  EDS_SHARE_STATIC_DIR="$PWD/dist" ./bin/share-server
+
+prod: prod-build prod-run
 
 # --- Quality checks ---
 

@@ -68,12 +68,32 @@ Set these when needed:
 - `EDS_SHARE_COOKIE_SECURE` (default `false` for localhost)
 - `EDS_SHARE_ALLOWED_ORIGIN` (default empty; set if you are not using the Vite proxy)
 
+OIDC (optional; when enabled, share *write* actions require login):
+
+- `EDS_SHARE_OIDC_ISSUER_URL` (e.g. `https://auth.example.com/realms/myrealm`)
+- `EDS_SHARE_OIDC_CLIENT_ID` (OIDC client id)
+- `EDS_SHARE_OIDC_AUDIENCE` (optional; comma-separated audiences; defaults to client id)
+
+Frontend (Vite) OIDC variables (optional):
+
+- `VITE_OIDC_ISSUER_URL`
+- `VITE_OIDC_CLIENT_ID`
+- `VITE_OIDC_AUDIENCE` (optional)
+- `VITE_OIDC_SCOPE` (optional; default `openid profile email`)
+
 Example PostgreSQL DSN:
 
 ```sh
 export EDS_SHARE_DB_DRIVER=postgres
 export EDS_SHARE_DB_DSN='postgres://user:pass@localhost:5432/eendraadschema?sslmode=disable'
 ```
+
+#### .env support (local testing)
+
+For convenience, the Go share-server will also try to load `.env` / `.env.local` files (non-fatal, and it will not overwrite already-set env vars):
+
+- Put backend variables in `server/.env` (see `server/.env.example`).
+- Put frontend variables in `.env.local` (see `.env.example`).
 
 A single file version can be built using
 ```npm run build```

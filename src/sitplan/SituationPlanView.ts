@@ -1585,7 +1585,7 @@ export class SituationPlanView {
         if (globalThis.autoSaver && globalThis.autoSaver.hasChangesSinceLastManualSave()) {
             outputleft += `
                 <span style="display: inline-block; width: 10px;"></span>
-                <div class="highlight-warning-big" style="width: 64px; display: inline-block; vertical-align: middle; text-align: center;" id="button_save" onclick="exportjson(false)" onmouseover="this.style.cursor='pointer'" onmouseout="this.style.cursor='default'">
+                <div class="highlight-warning-big" style="width: 64px; display: inline-block; vertical-align: middle; text-align: center;" id="button_save" onclick="saveSchema()" onmouseover="this.style.cursor='pointer'" onmouseout="this.style.cursor='default'">
                     <span class="icon-image" style="font-size:24px">💾</span>
                     <span class="icon-text" style="display: inline-block; width: 100%;">Opslaan</span>
                 </div>`
