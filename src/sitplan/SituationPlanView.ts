@@ -39,6 +39,105 @@ export class SituationPlanView {
 
     public contextMenu: ContextMenu = null;
 
+    private pendingAddPos: { x: number, y: number } | null = null;
+
+    private isPanningCanvas: boolean = false;
+    private panStart: { x: number; y: number; scrollLeft: number; scrollTop: number } | null = null;
+    private previousCanvasCursorPan: string | null = null;
+
+    private panCaptureMouseDown = (event: MouseEvent) => {
+        // Capture-phase handler: must run before box handlers which stopPropagation.
+        if (this.isAddingDistanceLine) return;
+        if (document.getElementById('outerdiv')?.style.display === 'none') return;
+        if (document.getElementById('popupOverlay') != null) return;
+
+        const isLeft = (event.button === 0) || ((event.buttons & 1) === 1);
+        const isMiddle = (event.button === 1) || ((event.buttons & 4) === 4);
+        const wantsModifiedLeftPan = isLeft && (event.ctrlKey || event.metaKey);
+        const wantsMiddlePan = isMiddle;
+
+        if (!wantsModifiedLeftPan && !wantsMiddlePan) return;
+
+        const rect = this.canvas.getBoundingClientRect();
+        const inside = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+        if (!inside) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        (event as any).stopImmediatePropagation?.();
+
+        this.startCanvasPan(event);
+    }
+
+    private panCaptureContextMenu = (event: MouseEvent) => {
+        // On macOS, Ctrl+click may trigger contextmenu. Suppress inside sitplan when using modifiers.
+        if (document.getElementById('outerdiv')?.style.display === 'none') return;
+        if (document.getElementById('popupOverlay') != null) return;
+
+        if (!(event.ctrlKey || event.metaKey) && !this.isPanningCanvas) return;
+
+        const rect = this.canvas.getBoundingClientRect();
+        const inside = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+        if (!inside) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        (event as any).stopImmediatePropagation?.();
+    }
+
+    private isAddingDistanceLine: boolean = false;
+    private distanceLineFirstPoint: { x: number, y: number } | null = null;
+    private previousCanvasCursor: string | null = null;
+
+    private distanceLineCaptureMouseDown = (event: MouseEvent) => {
+        if (!this.isAddingDistanceLine) return;
+        if (event.button !== 0) return; // only left click
+
+        const rect = this.canvas.getBoundingClientRect();
+        const inside = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+        if (!inside) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        (event as any).stopImmediatePropagation?.();
+
+        const canvasx = event.clientX - rect.left;
+        const canvasy = event.clientY - rect.top;
+        const paperPos = this.canvasPosToPaperPos(canvasx, canvasy);
+        this.handleDistanceLinePoint(paperPos);
+    }
+
+    private distanceLineCaptureTouchStart = (event: TouchEvent) => {
+        if (!this.isAddingDistanceLine) return;
+        const touch = event.touches[0] ?? event.changedTouches[0];
+        if (!touch) return;
+
+        const rect = this.canvas.getBoundingClientRect();
+        const inside = touch.clientX >= rect.left && touch.clientX <= rect.right && touch.clientY >= rect.top && touch.clientY <= rect.bottom;
+        if (!inside) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        (event as any).stopImmediatePropagation?.();
+
+        const canvasx = touch.clientX - rect.left;
+        const canvasy = touch.clientY - rect.top;
+        const paperPos = this.canvasPosToPaperPos(canvasx, canvasy);
+        this.handleDistanceLinePoint(paperPos);
+    }
+
+    private distanceLineCaptureContextMenu = (event: MouseEvent) => {
+        if (!this.isAddingDistanceLine) return;
+        const rect = this.canvas.getBoundingClientRect();
+        const inside = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+        if (!inside) return;
+        event.preventDefault();
+        event.stopPropagation();
+        (event as any).stopImmediatePropagation?.();
+        // Right click cancels the mode to avoid getting stuck.
+        this.cancelAddDistanceLine();
+    }
+
     private draggedBox: HTMLElement = null; /** Box die op dit moment versleept wordt of null */
     private draggedHalo: { left: number, top: number, right: number, bottom: number } = { left: 0, top: 0, right: 0, bottom: 0 };
 
@@ -62,26 +161,114 @@ export class SituationPlanView {
         this.event_manager = new EventManager();
 
         // Verwijder alle selecties wanneer we ergens anders klikken dan op een box
-        this.event_manager.addEventListener(canvas, 'mousedown', () => { this.contextMenu.hide(); this.clearSelection(); });
-        this.event_manager.addEventListener(canvas, 'touchstart', () => { this.contextMenu.hide(); this.clearSelection(); });
+        this.event_manager.addEventListener(canvas, 'mousedown', (event: MouseEvent) => { this.handleCanvasPointerDown(event); });
+        this.event_manager.addEventListener(canvas, 'touchstart', (event: TouchEvent) => { this.handleCanvasPointerDown(event); });
 
-        // Control wieltje om te zoomen
-        this.event_manager.addEventListener(canvas, 'wheel', (event: WheelEvent) => {
-            if (!event.ctrlKey && !event.metaKey) return;
+        // Pan gesture must win over element drag: attach at document capture.
+        document.addEventListener('mousedown', this.panCaptureMouseDown, true);
+        document.addEventListener('contextmenu', this.panCaptureContextMenu, true);
+
+        // Ctrl/Cmd + left-drag pans the canvas, even when starting on top of elements.
+        // Use capture phase so we can prevent box drag handlers from starting.
+        this.event_manager.addEventListener(canvas, 'mousedown', (event: MouseEvent) => {
+            if (this.isAddingDistanceLine) return;
+            if (document.getElementById('outerdiv')?.style.display === 'none') return;
+            if (document.getElementById('popupOverlay') != null) return;
+
+            if (event.button !== 0) return;
+            if (!(event.ctrlKey || event.metaKey)) return;
+
             event.preventDefault();
-            const zoom = -event.deltaY / 1000;
-            if (Math.abs(zoom) >= 0.01) {
-                const menuHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--menu-height'));
-                const ribbonHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ribbon-height'));
-                const sideBarWidth = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sideBarWidth'));
-                let canvasx = event.clientX - sideBarWidth;
-                let canvasy = event.clientY - menuHeight - ribbonHeight;
-                this.zoomIncrement(-event.deltaY / 2000, canvasx, canvasy);
-            }
+            event.stopPropagation();
+            (event as any).stopImmediatePropagation?.();
+
+            this.startCanvasPan(event);
+        }, { capture: true });
+
+        // Quick add menu (right click) when clicking empty canvas/paper
+        this.event_manager.addEventListener(canvas, 'contextmenu', this.showQuickAddMenu);
+
+        // On macOS, Ctrl+click can trigger a context menu; suppress it while panning.
+        this.event_manager.addEventListener(canvas, 'contextmenu', (event: MouseEvent) => {
+            if (!this.isPanningCanvas) return;
+            event.preventDefault();
+            event.stopPropagation();
+        });
+
+        // Scroll wheel zoom (plain wheel). Panning is available via Ctrl + left-drag.
+        this.event_manager.addEventListener(canvas, 'wheel', (event: WheelEvent) => {
+            // Only handle zoom when we're actually in the situationplan view.
+            if (document.getElementById('outerdiv')?.style.display === 'none') return;
+            if (document.getElementById('popupOverlay') != null) return;
+            if (this.isAddingDistanceLine) return;
+
+            event.preventDefault();
+
+            const rect = this.canvas.getBoundingClientRect();
+            const canvasx = event.clientX - rect.left;
+            const canvasy = event.clientY - rect.top;
+
+            // Trackpads can emit small deltas; ignore tiny jitter.
+            const zoomDelta = -event.deltaY;
+            if (Math.abs(zoomDelta) < 0.5) return;
+
+            // Keep existing feel: small multiplicative increments.
+            this.zoomIncrement(zoomDelta / 2000, canvasx, canvasy);
         }, { passive: false })
 
         // Voegt event handlers toe voor de pijltjestoesten
         this.attachArrowKeys();
+    }
+
+    public getVisibleCenterPaperPos(): { x: number, y: number } {
+        return this.canvasPosToPaperPos(this.canvas.clientWidth / 2, this.canvas.clientHeight / 2);
+    }
+
+    private mouseEventToPaperPos(event: MouseEvent): { x: number, y: number } {
+        const rect = this.canvas.getBoundingClientRect();
+        const canvasx = event.clientX - rect.left;
+        const canvasy = event.clientY - rect.top;
+        return this.canvasPosToPaperPos(canvasx, canvasy);
+    }
+
+    private openAddElectroItemPopupAt(paperPos: { x: number, y: number }) {
+        this.contextMenu.hide();
+        this.unattachArrowKeys();
+        SituationPlanView_ElementPropertiesPopup(
+            /* no element selected */
+            null,
+            /* OK button callback */
+            (electroid, adrestype, adres, adreslocation, labelfontsize, scale, rotate) => {
+                this.attachArrowKeys();
+                this.addElectroItem(
+                    electroid,
+                    adrestype as AdresType,
+                    adres,
+                    adreslocation as AdresLocation,
+                    labelfontsize,
+                    scale,
+                    rotate,
+                    paperPos.x,
+                    paperPos.y
+                );
+            },
+            /* Cancel button callback */
+            () => {
+                this.attachArrowKeys();
+            }
+        );
+    }
+
+    private openAddCustomItemPopupAt(paperPos: { x: number, y: number }) {
+        this.contextMenu.hide();
+        SituationPlanView_ChooseCustomElementPopup.showItemTypeSelectionPopup((itemType: string, scale: number, rotate: number) => {
+            const container = globalThis.structure.createContainerIfNotExists();
+            const electroItem = globalThis.structure.createItem(itemType);
+            globalThis.structure.insertChildAfterId(electroItem, container.id);
+
+            const labelfontsize = globalThis.structure.sitplan.defaults.fontsize;
+            this.addElectroItem(electroItem.id, 'manueel', '', 'rechts', labelfontsize, scale, rotate, paperPos.x, paperPos.y);
+        });
     }
 
     /**
@@ -326,12 +513,20 @@ export class SituationPlanView {
      * @param event - De muisgebeurtenis die het menu opent (right click).
      */
     private showContextMenu = (event: MouseEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        // Ensure the clicked element is selected, otherwise the menu will not appear.
+        const clickedBox = event.currentTarget as HTMLElement | null;
+        if (clickedBox != null && !this.selected.includes(clickedBox)) {
+            this.clearSelection();
+            this.selectOneBox(clickedBox);
+        }
+
         if (this.selected.length() < 1) return;
 
         let sitPlanElement: SituationPlanElement = (this.selected.getLastSelected() as any).sitPlanElementRef;
         if (sitPlanElement == null) return;
-
-        event.preventDefault();
 
         this.contextMenu.clearMenu();
 
@@ -342,6 +537,11 @@ export class SituationPlanView {
         }
 
         this.contextMenu.addMenuItem('Bewerk', this.editSelectedBox.bind(this), 'Enter');
+
+        // Visibility toggle (hide selected elements). Showing is handled via sidebar toggles or "Toon alles".
+        this.contextMenu.addMenuItem('Verberg', () => {
+            this.hideSelectedBoxes();
+        }, '');
         this.contextMenu.addLine();
 
         switch (this.getSelectionMovability()) {
@@ -372,6 +572,191 @@ export class SituationPlanView {
         }
 
         this.contextMenu.show(event);
+    }
+
+    private showQuickAddMenu = (event: MouseEvent) => {
+        // Do not override the element context menu.
+        const target = event.target as Element | null;
+        if (target != null && (target.closest('.box') || target.closest('.boxlabel') || target.closest('.context-menu'))) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        const paperPos = this.mouseEventToPaperPos(event);
+
+        this.contextMenu.clearMenu();
+
+        this.contextMenu.addMenuItem('Uit bestand…', () => {
+            this.pendingAddPos = paperPos;
+            const fileInput = document.getElementById('fileInput') as HTMLInputElement | null;
+            fileInput?.click();
+        });
+
+        this.contextMenu.addMenuItem('Verberg alles', () => {
+            this.hideAllElements();
+        });
+
+        this.contextMenu.addMenuItem('Toon alles', () => {
+            this.showAllElements();
+        });
+
+        this.contextMenu.addMenuItem('Uit schema…', () => {
+            this.openAddElectroItemPopupAt(paperPos);
+        });
+
+        this.contextMenu.addMenuItem('Los symbool…', () => {
+            this.openAddCustomItemPopupAt(paperPos);
+        });
+
+        this.contextMenu.addMenuItem('Afstandslijn…', () => {
+            this.startAddDistanceLine();
+        });
+
+        this.contextMenu.show(event);
+    }
+
+    private startAddDistanceLine() {
+        this.isAddingDistanceLine = true;
+        this.distanceLineFirstPoint = null;
+        if (this.previousCanvasCursor == null) this.previousCanvasCursor = this.canvas.style.cursor;
+        this.canvas.style.cursor = 'crosshair';
+        this.paper.style.cursor = 'crosshair';
+        document.body.classList.add('distance-line-mode');
+        this.clearSelection();
+
+        // Capture clicks anywhere on the canvas (also on top of boxes/images).
+        document.addEventListener('mousedown', this.distanceLineCaptureMouseDown, true);
+        document.addEventListener('touchstart', this.distanceLineCaptureTouchStart, { passive: false, capture: true } as any);
+        document.addEventListener('contextmenu', this.distanceLineCaptureContextMenu, true);
+    }
+
+    private cancelAddDistanceLine() {
+        if (!this.isAddingDistanceLine) return;
+        this.isAddingDistanceLine = false;
+        this.distanceLineFirstPoint = null;
+
+        document.removeEventListener('mousedown', this.distanceLineCaptureMouseDown, true);
+        document.removeEventListener('touchstart', this.distanceLineCaptureTouchStart as any, true);
+        document.removeEventListener('contextmenu', this.distanceLineCaptureContextMenu, true);
+
+        if (this.previousCanvasCursor != null) {
+            this.canvas.style.cursor = this.previousCanvasCursor;
+            this.previousCanvasCursor = null;
+        } else {
+            this.canvas.style.cursor = '';
+        }
+
+        this.paper.style.cursor = '';
+        document.body.classList.remove('distance-line-mode');
+    }
+
+    private handleDistanceLinePoint(paperPos: { x: number, y: number }) {
+        if (this.distanceLineFirstPoint == null) {
+            this.distanceLineFirstPoint = paperPos;
+            return;
+        }
+
+        const first = this.distanceLineFirstPoint;
+        const second = paperPos;
+        this.distanceLineFirstPoint = null;
+
+        const value = window.prompt('Afstand in centimeter (cm):', '');
+        if (value == null) {
+            this.cancelAddDistanceLine();
+            return;
+        }
+        const trimmed = value.trim();
+        const distanceCm = trimmed === '' ? null : Number(trimmed.replace(',', '.'));
+        if (trimmed !== '' && !(Number.isFinite(distanceCm) && distanceCm >= 0)) {
+            alert('Ongeldige afstand. Geef een getal in centimeters in.');
+            this.cancelAddDistanceLine();
+            return;
+        }
+
+        this.addDistanceLine(first, second, distanceCm);
+        this.cancelAddDistanceLine();
+    }
+
+    private handleCanvasPointerDown(event: MouseEvent | TouchEvent) {
+        this.contextMenu.hide();
+
+        // Ctrl + left click drag pans the canvas (on empty background only).
+        if (!this.isAddingDistanceLine && (event as MouseEvent).button != null) {
+            const me = event as MouseEvent;
+            const isLeft = me.button === 0;
+            const wantsPan = isLeft && (me.ctrlKey || me.metaKey);
+            if (wantsPan) {
+                me.preventDefault?.();
+                me.stopPropagation?.();
+                this.startCanvasPan(me);
+                return;
+            }
+        }
+
+        if (!this.isAddingDistanceLine) {
+            this.clearSelection();
+            return;
+        }
+
+        event.preventDefault?.();
+        event.stopPropagation?.();
+
+        // If we're in distance-line mode and the user clicks directly on the canvas background,
+        // we can still handle it here. Clicks on top of existing boxes/images are captured by
+        // the document-level capture listeners installed in startAddDistanceLine().
+        const paperPos = (() => {
+            if ((event as TouchEvent).touches != null) {
+                const touchEvent = event as TouchEvent;
+                const touch = touchEvent.touches[0] ?? touchEvent.changedTouches[0];
+                if (!touch) return null;
+                const rect = this.canvas.getBoundingClientRect();
+                const canvasx = touch.clientX - rect.left;
+                const canvasy = touch.clientY - rect.top;
+                return this.canvasPosToPaperPos(canvasx, canvasy);
+            }
+            return this.mouseEventToPaperPos(event as MouseEvent);
+        })();
+        if (!paperPos) return;
+        this.handleDistanceLinePoint(paperPos);
+    }
+
+    private startCanvasPan(event: MouseEvent) {
+        if (this.isPanningCanvas) return;
+        this.isPanningCanvas = true;
+        this.panStart = {
+            x: event.clientX,
+            y: event.clientY,
+            scrollLeft: this.canvas.scrollLeft,
+            scrollTop: this.canvas.scrollTop
+        };
+
+        this.previousCanvasCursorPan = this.canvas.style.cursor;
+        this.canvas.style.cursor = 'grabbing';
+
+        document.addEventListener('mousemove', this.processCanvasPan);
+        document.addEventListener('mouseup', this.stopCanvasPan);
+    }
+
+    private processCanvasPan = (event: MouseEvent) => {
+        if (!this.isPanningCanvas || !this.panStart) return;
+        event.preventDefault();
+
+        const dx = event.clientX - this.panStart.x;
+        const dy = event.clientY - this.panStart.y;
+
+        this.canvas.scrollLeft = this.panStart.scrollLeft - dx;
+        this.canvas.scrollTop = this.panStart.scrollTop - dy;
+    }
+
+    private stopCanvasPan = (_event: MouseEvent) => {
+        if (!this.isPanningCanvas) return;
+        document.removeEventListener('mousemove', this.processCanvasPan);
+        document.removeEventListener('mouseup', this.stopCanvasPan);
+
+        this.isPanningCanvas = false;
+        this.panStart = null;
+        this.canvas.style.cursor = this.previousCanvasCursorPan ?? '';
+        this.previousCanvasCursorPan = null;
     }
 
     /**
@@ -507,7 +892,8 @@ export class SituationPlanView {
         }
         if (boxlabel.style.top != top) boxlabel.style.top = top; // Vermijd aanpassingen DOM indien niet nodig
 
-        if (this.sitplan.activePage == sitPlanElement.page) {
+        const shouldShow = (this.sitplan.activePage == sitPlanElement.page) && (sitPlanElement.visible !== false);
+        if (shouldShow) {
             if (boxlabel.classList.contains('hidden')) boxlabel.classList.remove('hidden'); // Vermijd aanpassingen DOM indien niet nodig
         } else {
             if (!boxlabel.classList.contains('hidden')) boxlabel.classList.add('hidden'); // Vermijd aanpassingen DOM indien niet nodig
@@ -555,7 +941,8 @@ export class SituationPlanView {
         const transform = getRotationTransform(sitPlanElement);
         if (div.style.transform != transform) div.style.transform = transform; // Vermijd aanpassingen DOM indien niet nodig
 
-        if (this.sitplan.activePage == sitPlanElement.page) {
+        const shouldShow = (this.sitplan.activePage == sitPlanElement.page) && (sitPlanElement.visible !== false);
+        if (shouldShow) {
             if (div.classList.contains('hidden')) div.classList.remove('hidden'); // Vermijd aanpassingen DOM indien niet nodig
         } else {
             if (!div.classList.contains('hidden')) div.classList.add('hidden'); // Vermijd aanpassingen DOM indien niet nodig
@@ -976,7 +1363,7 @@ export class SituationPlanView {
     showPage(page: number) {
         this.clearSelection();
         for (let element of this.sitplan.elements) {
-            if (element.page != page) {
+            if (element.page != page || element.visible === false) {
                 element.boxref.classList.add('hidden');
                 element.boxlabelref.classList.add('hidden');
             } else {
@@ -985,6 +1372,40 @@ export class SituationPlanView {
             }
         }
         this.updateRibbon();
+    }
+
+    private hideSelectedBoxes() {
+        if (this.selected.length() === 0) return;
+
+        for (let selectedBox of this.selected.getAllSelected()) {
+            const sitPlanElement = (selectedBox as any)?.sitPlanElementRef as SituationPlanElement | null;
+            if (!sitPlanElement) continue;
+            sitPlanElement.visible = false;
+            this.updateSymbolAndLabelPosition(sitPlanElement);
+        }
+
+        this.clearSelection();
+        this.sideBar.render();
+        globalThis.undostruct.store();
+    }
+
+    public showAllElements() {
+        for (let element of this.sitplan.elements) {
+            // Only affect electrical symbols (those linked to an Electro_Item).
+            if (element.getElectroItemId?.() != null) element.visible = true;
+        }
+        this.redraw();
+        globalThis.undostruct.store();
+    }
+
+    public hideAllElements() {
+        for (let element of this.sitplan.elements) {
+            // Only affect electrical symbols (those linked to an Electro_Item).
+            if (element.getElectroItemId?.() != null) element.visible = false;
+        }
+        this.clearSelection();
+        this.redraw();
+        globalThis.undostruct.store();
     }
 
     /**
@@ -1042,6 +1463,11 @@ export class SituationPlanView {
             this.contextMenu.hide();
             if (document.getElementById('outerdiv').style.display == 'none') return; // Check if we are really in the situationplan, if not, the default scrolling action will be executed by the browser
             if (document.getElementById('popupOverlay') != null) return; // We need the keys when editing symbol properties.
+
+            if (event.key === 'Escape' && this.isAddingDistanceLine) {
+                this.cancelAddDistanceLine();
+                return;
+            }
 
             let selectedBoxes = this.selected.getAllSelected().filter(e => e != null);
             let selectedMovableBoxes = selectedBoxes.filter(e => (e as any).sitPlanElementRef != null && (e as any).sitPlanElementRef.movable);
@@ -1157,6 +1583,7 @@ export class SituationPlanView {
                             }
                             break;
                         case 'Escape':
+                            if (this.isAddingDistanceLine) this.cancelAddDistanceLine();
                             this.clearSelection();
                             break;
                         case 'Enter':
@@ -1275,7 +1702,13 @@ export class SituationPlanView {
     attachAddElementFromFileButton(elem: HTMLElement, fileinput: HTMLElement) {
         this.event_manager.addEventListener(elem, 'click', () => { this.contextMenu.hide(); fileinput.click(); });
         this.event_manager.addEventListener(fileinput, 'change', (event) => {
-            let element = this.sitplan.addElementFromFile(event, this.sitplan.activePage, this.paper.offsetWidth / 2, this.paper.offsetHeight / 2,
+            const desiredPos = this.pendingAddPos;
+            this.pendingAddPos = null;
+
+            const posx = desiredPos?.x ?? (this.paper.offsetWidth / 2);
+            const posy = desiredPos?.y ?? (this.paper.offsetHeight / 2);
+
+            let element = this.sitplan.addElementFromFile(event, this.sitplan.activePage, posx, posy,
                 (() => {
 
                     this.syncToSitPlan();
@@ -1428,6 +1861,29 @@ export class SituationPlanView {
             const sitPlanElement = (this.selected.getLastSelected() as any).sitPlanElementRef;
             if (!sitPlanElement) return;
 
+            if (sitPlanElement.kind === 'distanceLine') {
+                const current = (sitPlanElement.distanceLine as any)?.distanceCm;
+                const value = window.prompt('Afstand in centimeter (cm):', current == null ? '' : String(current));
+                this.attachArrowKeys();
+                if (value == null) {
+                    if (cancelCallback) cancelCallback();
+                    return;
+                }
+                const trimmed = value.trim();
+                const distanceCm = trimmed === '' ? null : Number(trimmed.replace(',', '.'));
+                if (trimmed !== '' && !(Number.isFinite(distanceCm) && distanceCm >= 0)) {
+                    alert('Ongeldige afstand. Geef een getal in centimeters in.');
+                    if (cancelCallback) cancelCallback();
+                    return;
+                }
+                if (!sitPlanElement.distanceLine) sitPlanElement.distanceLine = { x1: 0, y1: 0, x2: 1, y2: 1, distanceCm: null };
+                (sitPlanElement.distanceLine as any).distanceCm = distanceCm;
+                this.updateBoxContent(sitPlanElement);
+                this.updateSymbolAndLabelPosition(sitPlanElement);
+                globalThis.undostruct.store();
+                return;
+            }
+
             SituationPlanView_ElementPropertiesPopup(sitPlanElement,
                 /* OK button callback */
                 (electroid, adrestype, adres, adreslocation, labelfontsize, scale, rotate) => {
@@ -1479,6 +1935,18 @@ export class SituationPlanView {
                 }
             );
         }
+    }
+
+    private addDistanceLine(p1: { x: number, y: number }, p2: { x: number, y: number }, distanceCm: number | null) {
+        const element: SituationPlanElement = new SituationPlanElement();
+        element.setVars({ page: this.sitplan.activePage, movable: true, labelfontsize: this.sitplan.defaults.fontsize });
+        element.setDistanceLineAbsolute(p1, p2, distanceCm);
+        this.sitplan.addElement(element);
+        this.syncToSitPlan();
+        this.clearSelection();
+        this.redraw();
+        this.selectOneBox(element.boxref);
+        this.bringToFront(true);
     }
 
     /**
@@ -1550,6 +2018,12 @@ export class SituationPlanView {
             <div class="icon" id="button_Add_customItem">
                 <span class="icon-image" style="font-size:24px">➕</span>
                 <span class="icon-text">Los symbool</span>
+            </div>`;
+
+        outputleft += `
+            <div class="icon" id="button_Add_distanceLine">
+                <span class="icon-image" style="font-size:24px">📏</span>
+                <span class="icon-text">Afstandslijn</span>
             </div>`;
 
         outputleft += `
@@ -1687,6 +2161,10 @@ export class SituationPlanView {
         this.attachAddElementFromFileButton(document.getElementById('button_Add'), document.getElementById('fileInput'));
         this.attachAddElectroItemButton(document.getElementById('button_Add_electroItem'));
         this.attachAddCustomItemButton(document.getElementById('button_Add_customItem'));
+        this.event_manager.addEventListener(document.getElementById('button_Add_distanceLine'), 'click', () => {
+            this.contextMenu.hide();
+            this.startAddDistanceLine();
+        });
         this.attachDeleteButton(document.getElementById('button_Delete'));
 
         // -- Actions om visuals te bewerken --

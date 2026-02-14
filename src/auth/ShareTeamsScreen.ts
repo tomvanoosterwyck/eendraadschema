@@ -241,6 +241,85 @@ function closeShareVersionsModal() {
     }
 }
 
+function closeConfirmModal() {
+    const overlay = document.getElementById("stm_confirm_modal_overlay");
+    if (overlay && overlay.parentElement) {
+        overlay.parentElement.removeChild(overlay);
+    }
+}
+
+async function openConfirmModal(opts: {
+    title: string;
+    messageHtml: string;
+    confirmText?: string;
+    cancelText?: string;
+}): Promise<boolean> {
+    closeConfirmModal();
+
+    return await new Promise<boolean>((resolve) => {
+        const overlay = document.createElement("div");
+        overlay.id = "stm_confirm_modal_overlay";
+        overlay.classList.add("popup-overlay");
+
+        const popup = document.createElement("div");
+        popup.classList.add("popup");
+        popup.style.width = "min(640px, calc(100vw - 24px))";
+
+        const h3 = document.createElement("h3");
+        h3.textContent = opts.title;
+
+        const msg = document.createElement("div");
+        msg.innerHTML = opts.messageHtml;
+        msg.style.marginTop = "8px";
+
+        const actions = document.createElement("div");
+        actions.style.display = "flex";
+        actions.style.gap = "10px";
+        actions.style.marginTop = "14px";
+        actions.style.justifyContent = "flex-end";
+
+        const cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.textContent = opts.cancelText || "Annuleer";
+
+        const confirmBtn = document.createElement("button");
+        confirmBtn.type = "button";
+        confirmBtn.textContent = opts.confirmText || "Bevestig";
+
+        const done = (v: boolean) => {
+            window.removeEventListener("keydown", onKeyDown);
+            closeConfirmModal();
+            resolve(v);
+        };
+
+        cancelBtn.addEventListener("click", () => done(false));
+        confirmBtn.addEventListener("click", () => done(true));
+
+        const onKeyDown = (ev: KeyboardEvent) => {
+            if (ev.key === "Escape") done(false);
+        };
+        window.addEventListener("keydown", onKeyDown);
+
+        overlay.addEventListener("mousedown", (ev: MouseEvent) => {
+            if (ev.target === overlay) done(false);
+        });
+
+        actions.appendChild(cancelBtn);
+        actions.appendChild(confirmBtn);
+
+        popup.appendChild(h3);
+        popup.appendChild(msg);
+        popup.appendChild(actions);
+        overlay.appendChild(popup);
+        document.body.appendChild(overlay);
+        overlay.style.visibility = "visible";
+        overlay.style.pointerEvents = "auto";
+
+        // Focus confirm by default.
+        setTimeout(() => confirmBtn.focus(), 0);
+    });
+}
+
 async function openShareVersionsModal(shareId: string, token: string): Promise<void> {
     closeShareVersionsModal();
 
@@ -551,10 +630,46 @@ async function refreshShares(token: string): Promise<void> {
             await copyToClipboard(url);
         });
 
+        const btnDelete = document.createElement("button");
+        btnDelete.type = "button";
+        btnDelete.style.fontSize = "14px";
+        btnDelete.style.marginLeft = "8px";
+        btnDelete.textContent = "Verwijder";
+        btnDelete.addEventListener("click", async () => {
+            const t = await oidcAuth.getAccessToken();
+            if (!t) {
+                alert("Niet ingelogd.");
+                return;
+            }
+            const name = getLocalShareName(s.id);
+            const ok = await openConfirmModal({
+                title: "Share verwijderen",
+                messageHtml: `Weet je zeker dat je deze share wilt verwijderen?${
+                    name ? `<br><br><b>Naam:</b> ${name}` : ""
+                }<br><br><b>Opgelet:</b> dit kan niet ongedaan gemaakt worden.`,
+                confirmText: "Verwijder",
+                cancelText: "Annuleer"
+            });
+            if (!ok) return;
+            try {
+                btnDelete.disabled = true;
+                await fetchJSON<any>(`/api/shares/${encodeURIComponent(s.id)}`, t, { method: "DELETE" });
+                if (globalThis.currentShareId === s.id) {
+                    globalThis.currentShareId = null;
+                }
+                await refreshShares(t);
+            } catch (e: any) {
+                alert(`Kon share niet verwijderen: ${String(e?.message || e)}`);
+            } finally {
+                btnDelete.disabled = false;
+            }
+        });
+
         tdAct.appendChild(btnName);
         tdAct.appendChild(btnVersions);
         tdAct.appendChild(btnOpen);
         tdAct.appendChild(btnCopy);
+        tdAct.appendChild(btnDelete);
 
         tr.appendChild(tdName);
         tr.appendChild(tdTeam);

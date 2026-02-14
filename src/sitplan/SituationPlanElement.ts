@@ -14,6 +14,20 @@ export type AdresType = 'auto'|'manueel';
 
 export class SituationPlanElement {
 
+    // -- Optional specialized element kinds (non-electro items) --
+    public kind: 'default' | 'distanceLine' = 'default';
+    public distanceLine?: {
+        x1: number;
+        y1: number;
+        x2: number;
+        y2: number;
+        /** Optional user-entered distance in centimeters */
+        distanceCm?: number | null;
+
+        /** Backward compatibility: older files stored meters */
+        distanceMeters?: number | null;
+    };
+
     // -- Identificatie --
     public id:string; //unieke identificatie van het element
     private electroItemId: number | null = null; // Referentie naar het electro-element in de datastructuur indien van toepassing
@@ -52,6 +66,10 @@ export class SituationPlanElement {
 
     // -- Een vlag om de situationplanview te laten weten dat de box content moet geupdated worden
     public needsViewUpdate = false;
+
+    // -- Zichtbaarheid --
+    // If false, the element is hidden in the sitplan view and excluded from printing.
+    public visible: boolean = true;
 
     // -- Een vlag voor verplaatsbaarheid
     public movable = true;
@@ -159,7 +177,17 @@ export class SituationPlanElement {
      */
 
     getAdres(): string {
-        if (!this.isEendraadschemaSymbool()) return ''; // Geen adres voor niet-elektro-elementen
+        if (!this.isEendraadschemaSymbool()) {
+            // Default: no label for non-electro elements.
+            // Exception: distance lines show the user-entered distance.
+            if (this.kind === 'distanceLine') {
+                const dl: any = this.distanceLine as any;
+                const cm = (dl?.distanceCm != null) ? dl.distanceCm : (dl?.distanceMeters != null ? dl.distanceMeters * 100 : null);
+                if (cm == null || !Number.isFinite(cm)) return '';
+                return `${cm} cm`;
+            }
+            return '';
+        } // Geen adres voor niet-elektro-elementen
 
         let element = globalThis.structure.getElectroItemById(this.electroItemId);
         if (element == null) return ''; // zou redundant moeten zijn want we controleerden al in isEendraadschemaSymbool
@@ -303,6 +331,21 @@ export class SituationPlanElement {
 
     getScaledSVG(positioned: boolean = false): string {
 
+        // Ensure SVG content for special element kinds is generated.
+        if (this.kind === 'distanceLine' && this.distanceLine) {
+            // The outer <svg> wrapper is created by getScaledSVG. Here we only create inner content.
+            const dl = this.distanceLine;
+            const nextSvg = [
+                `<line x1="${dl.x1}" y1="${dl.y1}" x2="${dl.x2}" y2="${dl.y2}" stroke="black" stroke-width="2" vector-effect="non-scaling-stroke" />`,
+                `<circle cx="${dl.x1}" cy="${dl.y1}" r="3" fill="black" />`,
+                `<circle cx="${dl.x2}" cy="${dl.y2}" r="3" fill="black" />`
+            ].join('');
+            if (this.svg !== nextSvg) {
+                this.svg = nextSvg;
+                this.needsViewUpdate = true;
+            }
+        }
+
         if (this.isEendraadschemaSymbool()) {
             let electroItem = globalThis.structure.getElectroItemById(this.electroItemId);
             if (electroItem != null) electroItem.updateSituationPlanElement(this);
@@ -433,6 +476,9 @@ export class SituationPlanElement {
 
     toJsonObject() {
         return {
+            kind: this.kind,
+            distanceLine: this.distanceLine,
+            visible: this.visible,
             page: this.page,
 
             posx: this.posx, 
@@ -467,6 +513,19 @@ export class SituationPlanElement {
      */
 
     fromJsonObject(json: any) {
+        this.kind = (json.kind != null) ? json.kind : 'default';
+        this.distanceLine = json.distanceLine;
+
+        // Backward compatibility: older files did not store visibility.
+        this.visible = (json.visible != null) ? !!json.visible : true;
+
+        // Backward compatibility: older files stored distanceMeters, convert to cm.
+        if (this.kind === 'distanceLine' && this.distanceLine) {
+            const dl: any = this.distanceLine as any;
+            if (dl.distanceCm == null && dl.distanceMeters != null && Number.isFinite(dl.distanceMeters)) {
+                dl.distanceCm = dl.distanceMeters * 100;
+            }
+        }
         this.page = json.page;
 
         this.posx = json.posx;
@@ -493,5 +552,35 @@ export class SituationPlanElement {
         this.needsViewUpdate = true; // TODO: make this more efficient as it will always trigger redraws, even when not needed
 
         this.movable = (json.movable != null) ? json.movable : true;
+    }
+
+    public setDistanceLineAbsolute(p1: { x: number, y: number }, p2: { x: number, y: number }, distanceCm: number | null = null) {
+        const minx = Math.min(p1.x, p2.x);
+        const miny = Math.min(p1.y, p2.y);
+        const maxx = Math.max(p1.x, p2.x);
+        const maxy = Math.max(p1.y, p2.y);
+
+        const width = Math.max(1, maxx - minx);
+        const height = Math.max(1, maxy - miny);
+
+        this.kind = 'distanceLine';
+        this.rotate = 0;
+        this.setscale(1);
+        this.sizex = width;
+        this.sizey = height;
+        this.posx = minx + width / 2;
+        this.posy = miny + height / 2;
+        this.labelfontsize = this.labelfontsize ?? 11;
+        this.setAdresLocation('boven');
+
+        this.distanceLine = {
+            x1: p1.x - minx,
+            y1: p1.y - miny,
+            x2: p2.x - minx,
+            y2: p2.y - miny,
+            distanceCm
+        };
+
+        this.needsViewUpdate = true;
     }
 }

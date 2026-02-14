@@ -18,6 +18,7 @@ export class ElectroItemZoeker {
 
     private data: {id: number, kringnaam: string, adres: string, type: string}[] = [];
     private borden: {id: number, naam: string}[] = [];
+    private kringTekstByNaam: { [kringNaam: string]: string } = {};
 
     /**
      * Constructor van de ElectroItemZoeker.
@@ -61,6 +62,20 @@ export class ElectroItemZoeker {
     }
 
     /**
+     * Geef een meer beschrijvende label terug voor een kring.
+     * Bijvoorbeeld: "B keuken" in plaats van enkel "B".
+     */
+    getKringLabel(kringnaam: string): string {
+        const tekst = trimString(this.kringTekstByNaam[kringnaam] ?? '');
+        if (tekst === '' || tekst === '---') return kringnaam;
+        return `${kringnaam} ${tekst}`;
+    }
+
+    getUniqueKringnaamWithLabels(): { value: string, label: string }[] {
+        return this.getUniqueKringnaam().map(k => ({ value: k, label: this.getKringLabel(k) }));
+    }
+
+    /**
      * Geeft een lijst van alle ElectroItems retour die behoren tot de kring met de naam 'kringnaam'.
      * @param {string} kringnaam - de naam van de kring.
      * @returns {Object[]} een lijst van objecten met de volgende structuur:
@@ -88,6 +103,7 @@ export class ElectroItemZoeker {
         this.data = [];
         let dataAchteraan: {id: number, kringnaam: string, adres: string, type: string}[] = [];
         this.borden = [];
+        this.kringTekstByNaam = {};
         for (let i = 0; i<globalThis.structure.length; i++) {
             if (globalThis.structure.active[i]) {
                 let id:number = globalThis.structure.id[i];
@@ -96,6 +112,10 @@ export class ElectroItemZoeker {
                 let type:string = electroItem.getType();
                 if (type == 'Container') {
                     /* do nothing */
+                } else if (type == 'Kring') {
+                    const kringNaam = trimString((electroItem as any).props?.naam ?? '');
+                    const kringTekst = trimString((electroItem as any).props?.tekst ?? '');
+                    if (kringNaam !== '') this.kringTekstByNaam[kringNaam] = kringTekst;
                 } else if (electroItem.getParent() instanceof Container) {
                     // Container is een soort van 'wrapper' voor andere items, dus we negeren deze
                 } else if (type == 'Bord') {

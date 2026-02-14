@@ -383,6 +383,30 @@ func (s *Store) UpdateShare(ctx context.Context, id string, schema string, now t
 	return nil
 }
 
+func (s *Store) DeleteShare(ctx context.Context, id string) error {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return fmt.Errorf("id is required")
+		}
+		return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			// Clean up versions and sessions first.
+			if err := tx.Where("share_id = ?", id).Delete(&ShareVersionModel{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("share_id = ?", id).Delete(&SessionModel{}).Error; err != nil {
+				return err
+			}
+			res := tx.Delete(&ShareModel{}, "id = ?", id)
+			if res.Error != nil {
+				return res.Error
+			}
+			if res.RowsAffected == 0 {
+				return ErrNotFound
+			}
+			return nil
+		})
+}
+
 func (s *Store) GetShare(ctx context.Context, id string) (Share, error) {
 	var m ShareModel
 	if err := s.db.WithContext(ctx).First(&m, "id = ?", id).Error; err != nil {

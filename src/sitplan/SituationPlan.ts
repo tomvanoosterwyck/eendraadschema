@@ -321,7 +321,7 @@ export class SituationPlan {
             let miny = 0;
 
             for (let element of this.elements) {
-                if (element.page == (i+1)) {
+                if (element.page == (i+1) && element.visible !== false) {
                     let fontsize = (element.labelfontsize != null) ? element.labelfontsize : 11; 
                     svgstr += element.getScaledSVG(true);
 

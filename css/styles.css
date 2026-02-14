@@ -8,7 +8,7 @@
   --ribbon-height: 68px; 
   --status-bar-height: 0px; 
 
-  --sideBarWidth: 0px; /* Can be overwritte in propstyles */
+  --sideBarWidth: 260px; /* Can be overwritte in propstyles */
 
 
   --total-offset: calc(var(--menu-height) + var(--ribbon-height) + var(--status-bar-height));
@@ -448,6 +448,14 @@ ul#minitabs li.menu-item-right {
 
 .box.hidden { display: none; }
 
+/* Sitplan distance-line drawing mode: keep crosshair cursor everywhere */
+body.distance-line-mode #canvas,
+body.distance-line-mode #paper,
+body.distance-line-mode .box,
+body.distance-line-mode .boxlabel {
+  cursor: crosshair !important;
+}
+
 /* APP */
 
 #app {
@@ -581,6 +589,125 @@ ul#minitabs li.menu-item-right {
   left: 0;
   width: var(--sideBarWidth); /* Useful drawing area on A4 */
   height: 100%;
+
+  overflow: auto;
+  background-color: var(--surface-1);
+  border-right: 1px solid var(--border);
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+.sitplan-sidebar-title {
+  margin: 0 0 10px;
+  font-weight: 700;
+}
+
+.sitplan-sidebar-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 10px;
+}
+
+.sitplan-sidebar-titlebar .sitplan-sidebar-title {
+  margin: 0;
+}
+
+.sitplan-sidebar-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.sitplan-sidebar-actionbtn {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--popup-bg);
+  color: var(--text);
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+  min-width: 24px;
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sitplan-sidebar-actionbtn:hover {
+  background: color-mix(in srgb, var(--popup-bg) 85%, white 15%);
+}
+
+.sitplan-sidebar-itemrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sitplan-sidebar-visbtn {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--popup-bg);
+  color: var(--text);
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+  min-width: 24px;
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sitplan-sidebar-visbtn:hover {
+  background: color-mix(in srgb, var(--popup-bg) 85%, white 15%);
+}
+
+.sitplan-sidebar-visbtn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.sitplan-sidebar-select {
+  width: 100%;
+  margin: 6px 0 10px;
+}
+
+.sitplan-sidebar-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sitplan-sidebar-item {
+  text-align: left;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--popup-bg);
+  color: var(--text);
+  cursor: pointer;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sitplan-sidebar-count {
+  color: var(--muted-text);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sitplan-sidebar-item:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.sitplan-sidebar-item:hover {
+  background: color-mix(in srgb, var(--popup-bg) 85%, white 15%);
 }
 
 #canvas {

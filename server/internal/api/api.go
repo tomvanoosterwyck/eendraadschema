@@ -173,7 +173,7 @@ func (a *API) withMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Preflight
 		if r.Method == http.MethodOptions {
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			if a.cfg.AllowedOrigin != "" {
 				w.Header().Set("Access-Control-Allow-Origin", a.cfg.AllowedOrigin)
@@ -328,9 +328,44 @@ func (a *API) handleShareByID(w http.ResponseWriter, r *http.Request) {
 		a.handleGetShare(w, r, id)
 	case http.MethodPut:
 		a.handleUpdateShare(w, r, id)
+	case http.MethodDelete:
+		a.handleDeleteShare(w, r, id)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 	}
+}
+
+func (a *API) handleDeleteShare(w http.ResponseWriter, r *http.Request, id string) {
+	if !a.oidcEnabled() {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "unauthorized")
+		return
+	}
+	u, ok := a.requireUser(w, r)
+	if !ok {
+		return
+	}
+	sh, err := a.store.GetShare(r.Context(), id)
+	if err != nil {
+		if err == store.ErrNotFound {
+			writeError(w, http.StatusNotFound, "not_found", "share not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "db_read_failed", "could not read share")
+		return
+	}
+	if strings.TrimSpace(sh.OwnerSub) == "" || sh.OwnerSub != u.Sub {
+		writeError(w, http.StatusForbidden, "forbidden", "not allowed")
+		return
+	}
+	if err := a.store.DeleteShare(r.Context(), id); err != nil {
+		if err == store.ErrNotFound {
+			writeError(w, http.StatusNotFound, "not_found", "share not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "db_delete_failed", "could not delete share")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "deleted": true})
 }
 
 func (a *API) canAccessShare(w http.ResponseWriter, r *http.Request, shareID string) (actorSub string, ok bool) {
