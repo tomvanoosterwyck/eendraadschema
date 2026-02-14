@@ -1,12 +1,13 @@
 import { ElectroItemZoeker } from "./ElectroItemZoeker";
 import type { AdresLocation, AdresType } from "./SituationPlanElement";
+import { computeCableComponentsForKring, computeCableRunDetailsForKring } from "./CableLengthCalculator";
 
 export class SituationPlanView_SideBar {
 
     private container: HTMLElement | null;
     private zoeker: ElectroItemZoeker | null = null;
     private selectedKring: string | null = null;
-    
+
     constructor(div: HTMLElement | null) {
         this.container = div;
     }
@@ -14,10 +15,14 @@ export class SituationPlanView_SideBar {
     public renderSymbols() {
     }
 
+    public getSelectedKring(): string | null {
+        return this.selectedKring;
+    }
+
     public render() {
         if (!this.container) return;
 
-        if (!globalThis.structure) {
+        if (!(globalThis as any).structure) {
             this.container.innerHTML = '';
             return;
         }
@@ -25,8 +30,7 @@ export class SituationPlanView_SideBar {
         if (this.zoeker == null) this.zoeker = new ElectroItemZoeker();
         else this.zoeker.reCalculate();
 
-
-        const sitplan = (globalThis.structure as any).sitplan;
+        const sitplan = ((globalThis as any).structure as any).sitplan;
         const getAllElements = (): any[] => {
             if (sitplan?.getElements && typeof sitplan.getElements === 'function') {
                 const els = sitplan.getElements();
@@ -34,6 +38,7 @@ export class SituationPlanView_SideBar {
             }
             return Array.isArray(sitplan?.elements) ? sitplan.elements : [];
         };
+
         const allElements = getAllElements();
 
         const nonElectricalElements = allElements.filter(e => e?.getElectroItemId?.() == null);
@@ -41,9 +46,9 @@ export class SituationPlanView_SideBar {
         const nonElectricalVisibleCount = nonElectricalElements.filter(e => e?.visible !== false).length;
         const nonElectricalState: 'visible' | 'hidden' | 'mixed' =
             (nonElectricalTotal === 0) ? 'hidden' :
-            (nonElectricalVisibleCount === 0) ? 'hidden' :
-            (nonElectricalVisibleCount === nonElectricalTotal) ? 'visible' :
-            'mixed';
+                (nonElectricalVisibleCount === 0) ? 'hidden' :
+                    (nonElectricalVisibleCount === nonElectricalTotal) ? 'visible' :
+                        'mixed';
         const nonElectricalIcon = (nonElectricalState === 'visible') ? '👁' : (nonElectricalState === 'mixed') ? '◐' : '🚫';
 
         const getNonElectricalLabel = (el: any): string => {
@@ -51,12 +56,16 @@ export class SituationPlanView_SideBar {
                 const adres = (typeof el.getAdres === 'function') ? el.getAdres() : '';
                 return adres ? `Afstandslijn (${adres})` : 'Afstandslijn';
             }
+            if (el?.kind === 'connectionPoint') {
+                const id = String(el?.connectionPoint?.connectionId ?? '').trim();
+                return id ? `Verbindingspunt (${id})` : 'Verbindingspunt';
+            }
             // External/background drawings loaded from file
             if (typeof el?.svg === 'string' && el.svg.includes('<image ')) {
                 return 'Achtergrond/tekening';
             }
             return 'Niet-elektrisch element';
-        }
+        };
 
         const kringenWithLabels = this.zoeker.getUniqueKringnaamWithLabels();
         const kringValues = kringenWithLabels.map(k => k.value);
@@ -68,26 +77,39 @@ export class SituationPlanView_SideBar {
             const safeValue = k.value.replace(/"/g, '&quot;');
             const open = (k.value === this.selectedKring) ? 'open' : '';
 
-            const electroIdsInKring = this.zoeker.getElectroItemsByKring(k.value).map(it => it.id);
+            const electroIdsInKring = this.zoeker!.getElectroItemsByKring(k.value).map(it => it.id);
             const elementsInKring = allElements.filter(e => e?.getElectroItemId?.() != null && electroIdsInKring.includes(e.getElectroItemId()));
             const total = elementsInKring.length;
             const visibleCount = elementsInKring.filter(e => e?.visible !== false).length;
 
             const state: 'visible' | 'hidden' | 'mixed' =
                 (total === 0) ? 'hidden' :
-                (visibleCount === 0) ? 'hidden' :
-                (visibleCount === total) ? 'visible' :
-                'mixed';
+                    (visibleCount === 0) ? 'hidden' :
+                        (visibleCount === total) ? 'visible' :
+                            'mixed';
 
             const icon = (state === 'visible') ? '👁' : (state === 'mixed') ? '◐' : '🚫';
             const disabled = (total === 0) ? 'disabled' : '';
+
+            const cableRunsInKring = allElements.filter(e => e?.kind === 'cableRun' && (e?.cableRun?.kring ?? null) === k.value);
+            const cableTotal = cableRunsInKring.length;
+            const cableVisibleCount = cableRunsInKring.filter((e: any) => e?.visible !== false).length;
+            const cableState: 'visible' | 'hidden' | 'mixed' =
+                (cableTotal === 0) ? 'hidden' :
+                    (cableVisibleCount === 0) ? 'hidden' :
+                        (cableVisibleCount === cableTotal) ? 'visible' :
+                            'mixed';
+            const cableIcon = (cableState === 'visible') ? '👁' : (cableState === 'mixed') ? '◐' : '🚫';
+            const cableDisabled = (cableTotal === 0) ? 'disabled' : '';
 
             return `
                 <details class="sitplan-sidebar-kring" data-kring="${safeValue}" ${open}>
                     <summary class="sitplan-sidebar-kring-summary">
                         <button type="button" class="sitplan-sidebar-visbtn" data-kring-toggle="${safeValue}" data-state="${state}" title="Zichtbaarheid kring" ${disabled}>${icon}</button>
+                        <button type="button" class="sitplan-sidebar-visbtn" data-kring-cables-toggle="${safeValue}" data-state="${cableState}" title="Zichtbaarheid kabels" ${cableDisabled}>${cableIcon}</button>
                         <span>${k.label}</span>
                     </summary>
+                    <div class="sitplan-sidebar-cable-summary" data-kring-cable-summary="${safeValue}"></div>
                     <div class="sitplan-sidebar-items" data-kring-items="${safeValue}"></div>
                 </details>`;
         }).join('');
@@ -100,17 +122,17 @@ export class SituationPlanView_SideBar {
                 </summary>
                 <div class="sitplan-sidebar-items" id="sitplan_sidebar_nonelectrical_items">
                     ${nonElectricalElements.map((el: any) => {
-                        const label = getNonElectricalLabel(el);
-                        const state: 'visible' | 'hidden' = (el?.visible !== false) ? 'visible' : 'hidden';
-                        const icon = (state === 'visible') ? '👁' : '🚫';
-                        return `<div class="sitplan-sidebar-itemrow">
+                const label = getNonElectricalLabel(el);
+                const state: 'visible' | 'hidden' = (el?.visible !== false) ? 'visible' : 'hidden';
+                const icon = (state === 'visible') ? '👁' : '🚫';
+                return `<div class="sitplan-sidebar-itemrow">
                             <button type="button" class="sitplan-sidebar-visbtn" data-non-electrical-id="${el.id}" data-state="${state}" title="Zichtbaarheid" >${icon}</button>
                             <div class="sitplan-sidebar-item" style="cursor: default;">
                                 <span>${label}</span>
                                 <span class="sitplan-sidebar-count"></span>
                             </div>
                         </div>`;
-                    }).join('')}
+            }).join('')}
                 </div>
             </details>`;
 
@@ -128,8 +150,77 @@ export class SituationPlanView_SideBar {
         const tree = this.container.querySelector('#sitplan_sidebar_tree') as HTMLElement | null;
         if (!tree) return;
 
-        const renderItemsForKring = (kring: string, itemsDiv: HTMLElement) => {
+        const renderCableSummaryForKring = (kring: string, summaryDiv: HTMLElement) => {
+            const elements = getAllElements();
+            const cableCount = elements.filter((e: any) => e?.kind === 'cableRun' && (e?.cableRun?.kring ?? null) === kring).length;
+            if (cableCount === 0) {
+                summaryDiv.innerHTML = '';
+                return;
+            }
+
+            const sitplan = (((globalThis as any).structure as any) as any).sitplan;
+            const components = computeCableComponentsForKring(sitplan, elements, kring);
+            const groupCount = components.length;
+
+            const metersBySpec: Record<string, number> = {};
+            let unknownScaleRuns = 0;
+            let unknownRiserCount = 0;
+            let unknownEndpointCount = 0;
+            for (const c of components) {
+                unknownScaleRuns += c.unknownScaleRuns;
+                unknownRiserCount += c.unknownRiserCount;
+                unknownEndpointCount += c.unknownEndpointCount;
+                for (const [spec, meters] of Object.entries(c.metersBySpec)) {
+                    metersBySpec[spec] = (metersBySpec[spec] ?? 0) + meters;
+                }
+            }
+
+            const totalMeters = Object.values(metersBySpec).reduce((a, b) => a + b, 0);
+            const totalLabel = Number.isFinite(totalMeters) ? `${Math.round(totalMeters * 10) / 10} m` : '—';
+
+            const unknownParts: string[] = [];
+            if (unknownScaleRuns > 0) unknownParts.push(`schaal ontbreekt voor ${unknownScaleRuns} run(s)`);
+            if (unknownRiserCount > 0) unknownParts.push(`hoogte ontbreekt voor ${unknownRiserCount} stijgleiding(en)`);
+            if (unknownEndpointCount > 0) unknownParts.push(`verticale aansluiting onbekend voor ${unknownEndpointCount} eindpunt(en)`);
+            const unknownLabel = unknownParts.length > 0 ? ` (${unknownParts.join(', ')})` : '';
+
+            const groupLabel = (groupCount > 1) ? ` • ${groupCount} groepen` : (groupCount === 1 ? '' : '');
+
+            const lines = Object.keys(metersBySpec)
+                .sort((a, b) => a.localeCompare(b))
+                .map(spec => {
+                    const m = metersBySpec[spec];
+                    const label = Number.isFinite(m) ? `${Math.round(m * 10) / 10} m` : '—';
+                    return `<div class="sitplan-sidebar-cable-line"><span>${spec}</span><span class="sitplan-sidebar-count">${label}</span></div>`;
+                })
+                .join('');
+
+            summaryDiv.innerHTML = `
+                <div class="sitplan-sidebar-cable-header">
+                    <span>Kabels${groupLabel}</span>
+                    <span class="sitplan-sidebar-count">${totalLabel}${unknownLabel}</span>
+                </div>
+                ${lines}
+            `;
+
+            const runDetails = computeCableRunDetailsForKring(sitplan, elements, kring);
+            if (runDetails.length > 0) {
+                const runLines = runDetails.map((r, idx) => {
+                    const meters = (r.metersTotal == null) ? '—' : `${Math.round(r.metersTotal * 10) / 10} m`;
+                    const conn = (r.connectionIdsTouched.length > 0) ? ` ↕ ${r.connectionIdsTouched.join(', ')}` : '';
+                    const unknown = r.unknownScale ? ' (schaal?)' : (r.unknownEndpointCount > 0 ? ' (endpoint?)' : '');
+                    const label = `Run ${idx + 1} • p${r.page} • ${r.cableSpec}${conn}${unknown}`;
+                    return `<div class="sitplan-sidebar-cable-line"><span>${label}</span><span class="sitplan-sidebar-count">${meters}</span></div>`;
+                }).join('');
+                summaryDiv.innerHTML += runLines;
+            }
+        };
+
+        const renderItemsForKring = (kring: string, itemsDiv: HTMLElement, summaryDiv: HTMLElement | null) => {
             if (!this.zoeker) return;
+
+            if (summaryDiv) renderCableSummaryForKring(kring, summaryDiv);
+
             const items = this.zoeker.getElectroItemsByKring(kring);
             const elements = getAllElements();
 
@@ -141,13 +232,13 @@ export class SituationPlanView_SideBar {
                 const visibleCount = placedElements.filter((e: any) => e?.visible !== false).length;
                 const state: 'visible' | 'hidden' | 'mixed' =
                     (placed === 0) ? 'hidden' :
-                    (visibleCount === 0) ? 'hidden' :
-                    (visibleCount === placed) ? 'visible' :
-                    'mixed';
+                        (visibleCount === 0) ? 'hidden' :
+                            (visibleCount === placed) ? 'visible' :
+                                'mixed';
                 const icon = (state === 'visible') ? '👁' : (state === 'mixed') ? '◐' : '🚫';
                 const visibleDisabled = (placed === 0) ? 'disabled' : '';
 
-                const electro = globalThis.structure.getElectroItemById?.(it.id);
+                const electro = ((globalThis as any).structure as any).getElectroItemById?.(it.id);
                 const max = (electro && typeof electro.maxSituationPlanElements === 'function')
                     ? Number(electro.maxSituationPlanElements())
                     : 0;
@@ -173,14 +264,14 @@ export class SituationPlanView_SideBar {
                     const id = idStr ? Number(idStr) : NaN;
                     if (!Number.isFinite(id)) return;
 
-                    const view = (globalThis.structure as any).sitplanview;
+                    const view = ((globalThis as any).structure as any).sitplanview;
                     if (!view) return;
 
                     const pos = view.getVisibleCenterPaperPos
                         ? view.getVisibleCenterPaperPos()
                         : view.canvasPosToPaperPos(view.canvas?.clientWidth / 2, view.canvas?.clientHeight / 2);
 
-                    const sitplan = (globalThis.structure as any).sitplan;
+                    const sitplan = ((globalThis as any).structure as any).sitplan;
                     const labelfontsize = sitplan?.defaults?.fontsize ?? 11;
                     const scale = sitplan?.defaults?.scale ?? (globalThis as any).SITPLANVIEW_DEFAULT_SCALE;
                     const rotate = sitplan?.defaults?.rotate ?? 0;
@@ -199,7 +290,6 @@ export class SituationPlanView_SideBar {
                 });
             });
 
-            // Wire per-item visibility icon buttons
             const visButtons = itemsDiv.querySelectorAll('button[data-electro-visible]') as NodeListOf<HTMLButtonElement>;
             visButtons.forEach(btn => {
                 btn.addEventListener('click', (ev) => {
@@ -209,7 +299,7 @@ export class SituationPlanView_SideBar {
                     const id = Number(btn.getAttribute('data-electro-visible'));
                     if (!Number.isFinite(id)) return;
 
-                    const view = (globalThis.structure as any).sitplanview;
+                    const view = ((globalThis as any).structure as any).sitplanview;
                     if (!view) return;
 
                     const elements = getAllElements().filter((e: any) => e?.getElectroItemId?.() === id);
@@ -221,7 +311,8 @@ export class SituationPlanView_SideBar {
                         el.visible = makeVisible;
                     }
                     view.redraw();
-                    globalThis.undostruct.store();
+                    (globalThis as any).undostruct.store();
+                    this.render();
                 });
             });
         };
@@ -230,23 +321,23 @@ export class SituationPlanView_SideBar {
         kringDetails.forEach(details => {
             const kring = details.getAttribute('data-kring')?.replace(/&quot;/g, '"') ?? '';
             const itemsDiv = details.querySelector('div[data-kring-items]') as HTMLElement | null;
+            const summaryDiv = details.querySelector('div[data-kring-cable-summary]') as HTMLElement | null;
             if (!itemsDiv) return;
 
             const onToggle = () => {
                 if (details.open) {
                     this.selectedKring = kring;
-                    renderItemsForKring(kring, itemsDiv);
+                    renderItemsForKring(kring, itemsDiv, summaryDiv);
                 } else {
                     itemsDiv.innerHTML = '';
+                    if (summaryDiv) summaryDiv.innerHTML = '';
                 }
             };
 
             details.addEventListener('toggle', onToggle);
-            // Initial lazy render for the default open kring
             if (details.open) onToggle();
         });
 
-        // Wire kring-level visibility icon buttons
         const kringButtons = tree.querySelectorAll('button[data-kring-toggle]') as NodeListOf<HTMLButtonElement>;
         kringButtons.forEach(btn => {
             btn.addEventListener('click', (ev) => {
@@ -256,77 +347,116 @@ export class SituationPlanView_SideBar {
                 const kring = btn.getAttribute('data-kring-toggle')?.replace(/&quot;/g, '"') ?? '';
                 if (!kring) return;
 
-                const view = (globalThis.structure as any).sitplanview;
+                const view = ((globalThis as any).structure as any).sitplanview;
                 if (!view) return;
 
-                const items = this.zoeker.getElectroItemsByKring(kring);
-                const ids = new Set(items.map(it => it.id));
-                const elements = getAllElements().filter((e: any) => {
-                    const id = e?.getElectroItemId?.();
-                    return id != null && ids.has(id);
-                });
-
-                const total = elements.length;
-                const visibleCount = elements.filter((e: any) => e?.visible !== false).length;
+                const electroIdsInKring = this.zoeker!.getElectroItemsByKring(kring).map(it => it.id);
+                const elementsInKring = getAllElements().filter((e: any) => e?.getElectroItemId?.() != null && electroIdsInKring.includes(e.getElectroItemId()));
+                const total = elementsInKring.length;
+                const visibleCount = elementsInKring.filter((e: any) => e?.visible !== false).length;
                 const makeVisible = !(total > 0 && visibleCount === total);
-                for (let el of elements) {
+
+                for (const el of elementsInKring) {
                     el.visible = makeVisible;
                 }
 
                 view.redraw();
-                globalThis.undostruct.store();
+                (globalThis as any).undostruct.store();
+                this.render();
             });
         });
 
-        // Wire header hide/show-all buttons
-        const actionButtons = this.container.querySelectorAll('button[data-action]') as NodeListOf<HTMLButtonElement>;
-        actionButtons.forEach(btn => {
-            btn.addEventListener('click', () => {
-                const action = btn.getAttribute('data-action');
-                const view = (globalThis.structure as any).sitplanview;
-                if (!view) return;
-                if (action === 'hideAll') view.hideAllElements();
-                if (action === 'showAll') view.showAllElements();
-            });
-        });
-
-        // Wire non-electrical visibility toggles
-        const nonElToggle = this.container.querySelector('button[data-non-electrical-toggle]') as HTMLButtonElement | null;
-        if (nonElToggle) {
-            nonElToggle.addEventListener('click', (ev) => {
+        const kringCableButtons = tree.querySelectorAll('button[data-kring-cables-toggle]') as NodeListOf<HTMLButtonElement>;
+        kringCableButtons.forEach(btn => {
+            btn.addEventListener('click', (ev) => {
                 ev.stopPropagation();
-                if (nonElToggle.disabled) return;
-                const view = (globalThis.structure as any).sitplanview;
+                if (btn.disabled) return;
+
+                const kring = btn.getAttribute('data-kring-cables-toggle')?.replace(/&quot;/g, '"') ?? '';
+                if (!kring) return;
+
+                const view = ((globalThis as any).structure as any).sitplanview;
                 if (!view) return;
+
+                const cableElements = getAllElements().filter((e: any) => e?.kind === 'cableRun' && (e?.cableRun?.kring ?? null) === kring);
+                const total = cableElements.length;
+                const visibleCount = cableElements.filter((e: any) => e?.visible !== false).length;
+                const makeVisible = !(total > 0 && visibleCount === total);
+
+                for (const el of cableElements) {
+                    el.visible = makeVisible;
+                }
+
+                view.redraw();
+                (globalThis as any).undostruct.store();
+                this.render();
+            });
+        });
+
+        const nonElectricalToggle = tree.querySelector('button[data-non-electrical-toggle]') as HTMLButtonElement | null;
+        if (nonElectricalToggle) {
+            nonElectricalToggle.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                if (nonElectricalToggle.disabled) return;
+
+                const view = ((globalThis as any).structure as any).sitplanview;
+                if (!view) return;
+
                 const elements = getAllElements().filter((e: any) => e?.getElectroItemId?.() == null);
                 const total = elements.length;
                 const visibleCount = elements.filter((e: any) => e?.visible !== false).length;
                 const makeVisible = !(total > 0 && visibleCount === total);
-                for (let el of elements) el.visible = makeVisible;
+
+                for (const el of elements) {
+                    el.visible = makeVisible;
+                }
+
                 view.redraw();
-                globalThis.undostruct.store();
+                (globalThis as any).undostruct.store();
+                this.render();
             });
         }
 
-        const nonElButtons = this.container.querySelectorAll('button[data-non-electrical-id]') as NodeListOf<HTMLButtonElement>;
+        const nonElButtons = tree.querySelectorAll('button[data-non-electrical-id]') as NodeListOf<HTMLButtonElement>;
         nonElButtons.forEach(btn => {
             btn.addEventListener('click', (ev) => {
                 ev.stopPropagation();
                 const id = btn.getAttribute('data-non-electrical-id');
                 if (!id) return;
-                const view = (globalThis.structure as any).sitplanview;
+
+                const view = ((globalThis as any).structure as any).sitplanview;
                 if (!view) return;
-                const el = getAllElements().find((e: any) => e?.id === id);
+
+                const el = getAllElements().find((e: any) => String(e?.id) === String(id));
                 if (!el) return;
-                el.visible = (el.visible === false);
+
+                el.visible = !(el?.visible !== false);
                 view.redraw();
-                globalThis.undostruct.store();
+                (globalThis as any).undostruct.store();
+                this.render();
+            });
+        });
+
+        const actionButtons = this.container.querySelectorAll('button[data-action]') as NodeListOf<HTMLButtonElement>;
+        actionButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const action = btn.getAttribute('data-action');
+                const view = ((globalThis as any).structure as any).sitplanview;
+                if (!view) return;
+
+                const elements = getAllElements();
+                if (action === 'hideAll') {
+                    for (const el of elements) el.visible = false;
+                } else if (action === 'showAll') {
+                    for (const el of elements) el.visible = true;
+                } else {
+                    return;
+                }
+
+                view.redraw();
+                (globalThis as any).undostruct.store();
+                this.render();
             });
         });
     }
-
 }
-
-globalThis.HLInsertAndEditSymbol = (event: MouseEvent, id: number) => {}
-
-globalThis.HLExpandSitPlan = (my_id: number) => {}

@@ -25,6 +25,7 @@ import { importExportUsingFileAPI } from "./importExport/importExport";
 import { changelog } from "./changelog";
 import { initTheme, onThemeChanged, toggleTheme, type Theme } from "./ThemeManager";
 import { SituationPlanElement } from "./sitplan/SituationPlanElement";
+import { refreshMaterialsPageIfOpen, showMaterialsPage } from "./bom/materials";
 
 import { initFrontendAuth } from "./auth/frontendAuth";
 import { oidcAuth } from "./auth/OidcAuth";
@@ -42,6 +43,18 @@ console.log(BUILD_DATE);
 globalThis.session = new Session();
 globalThis.appDocStorage = new MultiLevelStorage<any>('appDocStorage', {});
 globalThis.undostruct = new undoRedo(100);
+
+// Live refresh for config-style pages that derive data (e.g. Materials BOM).
+{
+    const undoObj = globalThis.undostruct as any;
+    const originalStore = undoObj.store?.bind(undoObj);
+    if (typeof originalStore === 'function') {
+        undoObj.store = (...args: any[]) => {
+            originalStore(...args);
+            refreshMaterialsPageIfOpen();
+        };
+    }
+}
 globalThis.fileAPIobj = new importExportUsingFileAPI();
 globalThis.currentShareId = null;
 
@@ -1861,6 +1874,7 @@ const baseMenuItems: MenuItem[] = [
     { name: 'Bestand', callback: showFilePage },
     { name: 'Eéndraadschema', callback: globalThis.HLRedrawTree },
     { name: 'Situatieschema', callback: showSituationPlanPage },
+    { name: 'Materialen', callback: showMaterialsPage },
     { name: 'Print', callback: printsvg },
     { name: 'Documentatie', callback: showDocumentationPage },
     { name: 'Info/Contact', callback: openContactForm }

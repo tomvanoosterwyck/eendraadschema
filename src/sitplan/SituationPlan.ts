@@ -21,10 +21,22 @@ export class SituationPlan {
     private numPages: number = 1;
     private elements: SituationPlanElement[] = [];
 
+    // -- Floors --
+    // Floors are user-defined labels that can be assigned per page.
+    // Stored in sitplanjson for persistence; older files simply won't have these fields.
+    public floors: Array<{ id: string; name: string; elevationCm?: number | null; cablePlaneOffsetCm?: number | null }> = [];
+    public pageFloorIds: Array<string | null> = []; // 1-based page number stored at index page-1
+
+    // -- Scale per page --
+    // Conversion factor from the internal sitplan coordinate system ("paper units") to meters.
+    // Null means the page has not been calibrated.
+    public pageMetersPerUnit: Array<number | null> = []; // 1-based page number stored at index page-1
+
     public defaults = {
         fontsize: 11,
         scale: globalThis.SITPLANVIEW_DEFAULT_SCALE,
-        rotate: 0
+        rotate: 0,
+        defaultDeviceHeightCm: 30
     }
 
     /**
@@ -35,11 +47,85 @@ export class SituationPlan {
         this.elements = [];
         this.numPages = 1;
         this.activePage = 1;
+        this.floors = [];
+        this.pageFloorIds = [];
+        this.pageMetersPerUnit = [];
         this.defaults = {
             fontsize: 11,
             scale: globalThis.SITPLANVIEW_DEFAULT_SCALE,
-            rotate: 0
+            rotate: 0,
+            defaultDeviceHeightCm: 30
         }
+    }
+
+    private static generateFloorId(): string {
+        // Stable-enough random id; does not need crypto-grade uniqueness.
+        return 'fl_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    }
+
+    /** Ensure there is at least one floor so the UI has something to select. */
+    ensureFloorsInitialized(): void {
+        if (Array.isArray(this.floors) && this.floors.length > 0) return;
+        // cablePlaneOffsetCm: cable routing height relative to finished floor (cm).
+        // Typical: cables in floor ~10cm => -10.
+        this.floors = [{ id: SituationPlan.generateFloorId(), name: 'Gelijkvloers', elevationCm: 0, cablePlaneOffsetCm: -10 }];
+    }
+
+    /** Ensure pageFloorIds length matches numPages; fills missing entries with the first floor id (or null). */
+    ensurePageFloorIdsLength(): void {
+        this.ensureFloorsInitialized();
+        const defaultFloorId = this.floors.length > 0 ? this.floors[0].id : null;
+        while (this.pageFloorIds.length < this.numPages) this.pageFloorIds.push(defaultFloorId);
+        if (this.pageFloorIds.length > this.numPages) this.pageFloorIds.length = this.numPages;
+    }
+
+    /** Ensure pageMetersPerUnit length matches numPages; fills missing entries with null. */
+    ensurePageMetersPerUnitLength(): void {
+        while (this.pageMetersPerUnit.length < this.numPages) this.pageMetersPerUnit.push(null);
+        if (this.pageMetersPerUnit.length > this.numPages) this.pageMetersPerUnit.length = this.numPages;
+    }
+
+    getMetersPerUnitForPage(page: number): number | null {
+        if (!Number.isFinite(page) || page < 1) return null;
+        this.ensurePageMetersPerUnitLength();
+        const value = this.pageMetersPerUnit[page - 1];
+        return (value != null && Number.isFinite(value) && value > 0) ? value : null;
+    }
+
+    setMetersPerUnitForPage(page: number, metersPerUnit: number | null): void {
+        if (!Number.isFinite(page) || page < 1) return;
+        this.ensurePageMetersPerUnitLength();
+        if (metersPerUnit == null) {
+            this.pageMetersPerUnit[page - 1] = null;
+            return;
+        }
+        const n = Number(metersPerUnit);
+        this.pageMetersPerUnit[page - 1] = (Number.isFinite(n) && n > 0) ? n : null;
+    }
+
+    getFloorIdForPage(page: number): string | null {
+        if (!Number.isFinite(page) || page < 1) return null;
+        this.ensurePageFloorIdsLength();
+        return this.pageFloorIds[page - 1] ?? null;
+    }
+
+    setFloorIdForPage(page: number, floorId: string | null): void {
+        if (!Number.isFinite(page) || page < 1) return;
+        this.ensurePageFloorIdsLength();
+        this.pageFloorIds[page - 1] = floorId;
+    }
+
+    addFloor(name: string, elevationCm: number | null = null, cablePlaneOffsetCm: number | null = -10): string {
+        this.ensureFloorsInitialized();
+        const id = SituationPlan.generateFloorId();
+        const offset = (cablePlaneOffsetCm == null) ? null : Number(cablePlaneOffsetCm);
+        this.floors.push({
+            id,
+            name,
+            elevationCm,
+            cablePlaneOffsetCm: (offset == null || !Number.isFinite(offset)) ? -10 : offset
+        });
+        return id;
     }
 
     /**
@@ -247,6 +333,40 @@ export class SituationPlan {
             Object.assign(this.defaults, json.defaults);
         }
 
+        // Floors + page mapping (backward compatible)
+        if (Array.isArray(json.floors)) {
+            this.floors = json.floors
+                .filter((f: any) => f && typeof f.id === 'string' && typeof f.name === 'string')
+                .map((f: any) => ({
+                    id: String(f.id),
+                    name: String(f.name),
+                    elevationCm: (f.elevationCm != null && Number.isFinite(Number(f.elevationCm))) ? Number(f.elevationCm) : null,
+                    cablePlaneOffsetCm: (f.cablePlaneOffsetCm != null && Number.isFinite(Number(f.cablePlaneOffsetCm))) ? Number(f.cablePlaneOffsetCm) : -10
+                }));
+        } else {
+            this.floors = [];
+        }
+
+        if (Array.isArray(json.pageFloorIds)) {
+            this.pageFloorIds = json.pageFloorIds.map((v: any) => (v == null ? null : String(v)));
+        } else {
+            this.pageFloorIds = [];
+        }
+
+        this.ensurePageFloorIdsLength();
+
+        // Scale per page (backward compatible)
+        if (Array.isArray(json.pageMetersPerUnit)) {
+            this.pageMetersPerUnit = json.pageMetersPerUnit.map((v: any) => {
+                if (v == null) return null;
+                const n = Number(v);
+                return (Number.isFinite(n) && n > 0) ? n : null;
+            });
+        } else {
+            this.pageMetersPerUnit = [];
+        }
+        this.ensurePageMetersPerUnitLength();
+
         if (Array.isArray(json.elements)) {
             this.elements = json.elements.map((element: any) => {
                 const newElement = new SituationPlanElement();
@@ -266,11 +386,21 @@ export class SituationPlan {
      */
     toJsonObject(): any {
         this.orderByZIndex();
+        this.ensurePageFloorIdsLength();
+        this.ensurePageMetersPerUnitLength();
         let elements = [];
         for (let element of this.elements) {
             elements.push(element.toJsonObject());
         }
-        return {numPages: this.numPages, activePage: this.activePage, defaults: this.defaults, elements: elements};
+        return {
+            numPages: this.numPages,
+            activePage: this.activePage,
+            defaults: this.defaults,
+            floors: this.floors,
+            pageFloorIds: this.pageFloorIds,
+            pageMetersPerUnit: this.pageMetersPerUnit,
+            elements: elements
+        };
     }
 
     /**

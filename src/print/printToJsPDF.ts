@@ -25,6 +25,11 @@ type SitPlanPrint = {
     pages: { svg: string; sizex: number; sizey: number }[];
 };
 
+type BomPrintData = {
+    title: string;
+    sections: { heading: string; lines: string[] }[];
+};
+
 type StatusCallback = { innerHTML: string } | null;
 
 export function printPDF(
@@ -35,7 +40,8 @@ export function printPDF(
     //pages: number[] = [1],                // Pagina's die moeten worden afgedrukt, standaard is pagina 1
     filename = "eendraadschema_print.pdf",  // Filename van de PDF die gegenereerd wordt
     statuscallback: StatusCallback,         // Via deze functie wordt de voortgang doorgegeven aan een oproepend element (doorgaans GUI)
-    sitplanprint: SitPlanPrint              // Informatie over het situatieschema
+    sitplanprint: SitPlanPrint,             // Informatie over het situatieschema
+    bom?: BomPrintData                      // Materialen (BOM) als extra pagina(s)
 ): void {
     const setStatus = (html: string) => {
         if (statuscallback) statuscallback.innerHTML = html;
@@ -120,6 +126,8 @@ export function printPDF(
 
     let pages: (number | null)[];
     const totalPages = print_table.pages.length + sitplanprint.numpages;
+
+    let bomPageCount = 0;
 
     // Initialize all as null
     pages = Array(totalPages).fill(null);
@@ -309,6 +317,109 @@ export function printPDF(
         return doc;
     }
 
+    function estimateBomPages(doc: any, bom: BomPrintData): number {
+        const margin = paperdetails.paper_margin;
+        const maxWidth = paperdetails.paperwidth - 2 * margin;
+        const lineHeight = 4; // mm, for font size ~10
+        const headerGap = 6;
+
+        let y = margin;
+        let pages = 1;
+
+        // Title
+        y += 8;
+
+        for (const section of bom.sections ?? []) {
+            // Section heading
+            y += headerGap;
+            for (const line of section.lines ?? []) {
+                if (line === '') {
+                    y += lineHeight;
+                    continue;
+                }
+                const wrapped = doc.splitTextToSize(String(line), maxWidth) as string[];
+                const needed = wrapped.length * lineHeight;
+                if (y + needed > paperdetails.paperheight - margin) {
+                    pages += 1;
+                    y = margin;
+                }
+                y += needed;
+            }
+
+            // small gap between sections
+            y += lineHeight;
+            if (y > paperdetails.paperheight - margin) {
+                pages += 1;
+                y = margin;
+            }
+        }
+
+        return Math.max(1, pages);
+    }
+
+    function appendBomPages(doc: any): void {
+        if (!bom || !Array.isArray(bom.sections) || bom.sections.length === 0) return;
+
+        setStatus("Materialen (BOM) wordt toegevoegd..");
+
+        const margin = paperdetails.paper_margin;
+        const maxWidth = paperdetails.paperwidth - 2 * margin;
+        const lineHeight = 4; // mm
+
+        const basePages = typeof doc.getNumberOfPages === 'function' ? Number(doc.getNumberOfPages()) : 0;
+        const totalPages = basePages + bomPageCount;
+
+        const newPage = () => {
+            doc.addPage();
+            const currentPage = typeof doc.getNumberOfPages === 'function' ? Number(doc.getNumberOfPages()) : 0;
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(14);
+            doc.text(String(bom.title || "Materialen (BOM)"), margin, margin + 2);
+
+            doc.setFontSize(9);
+            try {
+                doc.text(`pagina ${currentPage}/${totalPages}`, paperdetails.paperwidth - margin, margin + 2, { align: 'right' });
+            } catch {
+                // Older jsPDF versions may not support align options; ignore.
+            }
+
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "normal");
+            return margin + 10;
+        };
+
+        let y = newPage();
+
+        for (const section of bom.sections) {
+            // Section heading
+            if (y + 8 > paperdetails.paperheight - margin) y = newPage();
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(12);
+            doc.text(String(section.heading), margin, y);
+            y += 6;
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(10);
+
+            for (const rawLine of section.lines ?? []) {
+                const line = String(rawLine ?? '');
+                if (line === '') {
+                    y += lineHeight;
+                    if (y > paperdetails.paperheight - margin) y = newPage();
+                    continue;
+                }
+
+                const wrapped = doc.splitTextToSize(line, maxWidth) as string[];
+                for (const w of wrapped) {
+                    if (y > paperdetails.paperheight - margin) y = newPage();
+                    doc.text(w, margin, y);
+                    y += lineHeight;
+                }
+            }
+
+            y += lineHeight;
+        }
+    }
+
     function addPage(doc: any, svg: string, sizex: number, sizey: number, callback: (doc: any, iter: number) => void, iter = 0) {
 
         svgToPng(svg, sizex, sizey, function (png, scale) {
@@ -373,7 +484,7 @@ export function printPDF(
                      paperdetails.paperheight - paperdetails.paper_margin - (paperdetails.drawnby_box_height - textHeight) / 2 - textHeight / 6);
 
             let page = iter + 1;
-            let maxpages = print_table.pages.length + sitplanprint.numpages;
+            let maxpages = print_table.pages.length + sitplanprint.numpages + bomPageCount;
 
             doc.text("pagina. " + page + "/" + maxpages,
                      startx + 3 * paperdetails.owner_box_width + 2, //Leave 2mm at the left 
@@ -474,6 +585,7 @@ export function printPDF(
                 addPage(doc, toprint.svg, toprint.sizex, toprint.sizey, nextpage, iter);
             }
         } else {
+            appendBomPages(doc);
             save(doc);
         }
     }
@@ -518,5 +630,6 @@ export function printPDF(
 
     setStatus("PDF wordt gegenereerd. Even geduld..");
     let doc = init();
+    bomPageCount = bom ? estimateBomPages(doc, bom) : 0;
     nextpage(doc, 0);
 }

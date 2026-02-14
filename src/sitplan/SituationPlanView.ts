@@ -48,6 +48,7 @@ export class SituationPlanView {
     private panCaptureMouseDown = (event: MouseEvent) => {
         // Capture-phase handler: must run before box handlers which stopPropagation.
         if (this.isAddingDistanceLine) return;
+        if (this.isAddingCableRun) return;
         if (document.getElementById('outerdiv')?.style.display === 'none') return;
         if (document.getElementById('popupOverlay') != null) return;
 
@@ -88,6 +89,344 @@ export class SituationPlanView {
     private isAddingDistanceLine: boolean = false;
     private distanceLineFirstPoint: { x: number, y: number } | null = null;
     private previousCanvasCursor: string | null = null;
+
+    private isAddingCableRun: boolean = false;
+    private cableRunPoints: Array<{ x: number, y: number }> = [];
+    private previousCanvasCursorCable: string | null = null;
+    private cableRunPreviewElement: SituationPlanElement | null = null;
+    private cableRunPreviewCursorPos: { x: number, y: number } | null = null;
+    private pendingCableRunSpec: string | null = null;
+
+    private isAddingConnectionPoint: boolean = false;
+    private pendingConnectionId: string | null = null;
+    private previousCanvasCursorConnection: string | null = null;
+
+    private cableVertexDrag: {
+        element: SituationPlanElement;
+        vertexIndex: number;
+        moved: boolean;
+    } | null = null;
+
+    private getCableVertexIndexFromEventTarget(target: any): number | null {
+        try {
+            const attr = target?.getAttribute?.('data-cable-vertex-index') ?? target?.getAttribute?.('data-cable-vertex-index');
+            if (attr == null) return null;
+            const idx = Number(attr);
+            return Number.isFinite(idx) ? idx : null;
+        } catch {
+            return null;
+        }
+    }
+
+    private getCableRunAbsolutePoints(element: SituationPlanElement): Array<{ x: number; y: number }> {
+        if (!element || element.kind !== 'cableRun' || !element.cableRun) return [];
+        const minx = element.posx - element.sizex / 2;
+        const miny = element.posy - element.sizey / 2;
+        return (element.cableRun.points ?? []).map(p => ({ x: p.x + minx, y: p.y + miny }));
+    }
+
+    private startCableVertexDrag(event: MouseEvent | TouchEvent, element: SituationPlanElement, vertexIndex: number) {
+        const abs = this.getCableRunAbsolutePoints(element);
+        if (abs.length < 2) return;
+        if (!(vertexIndex >= 0 && vertexIndex < abs.length)) return;
+
+        this.cableVertexDrag = { element, vertexIndex, moved: false };
+
+        event.preventDefault?.();
+        event.stopPropagation?.();
+
+        document.addEventListener('mousemove', this.processCableVertexDrag);
+        document.addEventListener('mouseup', this.stopCableVertexDrag);
+        document.addEventListener('touchmove', this.processCableVertexDrag, { passive: false } as any);
+        document.addEventListener('touchend', this.stopCableVertexDrag);
+    }
+
+    private processCableVertexDrag = (event: MouseEvent | TouchEvent) => {
+        if (!this.cableVertexDrag) return;
+        event.preventDefault?.();
+
+        const element = this.cableVertexDrag.element;
+        const vertexIndex = this.cableVertexDrag.vertexIndex;
+
+        const paperPos = (() => {
+            if ((event as TouchEvent).touches != null) {
+                const te = event as TouchEvent;
+                const touch = te.touches[0] ?? te.changedTouches[0];
+                if (!touch) return null;
+                const rect = this.canvas.getBoundingClientRect();
+                const canvasx = touch.clientX - rect.left;
+                const canvasy = touch.clientY - rect.top;
+                return this.canvasPosToPaperPos(canvasx, canvasy);
+            }
+            return this.mouseEventToPaperPos(event as MouseEvent);
+        })();
+        if (!paperPos) return;
+
+        const abs = this.getCableRunAbsolutePoints(element);
+        if (!(vertexIndex >= 0 && vertexIndex < abs.length)) return;
+
+        const dx = abs[vertexIndex].x - paperPos.x;
+        const dy = abs[vertexIndex].y - paperPos.y;
+        if ((dx * dx + dy * dy) > 0.0001) this.cableVertexDrag.moved = true;
+
+        abs[vertexIndex] = { x: paperPos.x, y: paperPos.y };
+        element.setCableRunAbsolute(abs, element.cableRun?.kring ?? null, (element.cableRun as any)?.cableSpec ?? null);
+        this.updateBoxContent(element);
+        this.updateSymbolAndLabelPosition(element);
+    }
+
+    private stopCableVertexDrag = (_event: MouseEvent | TouchEvent) => {
+        document.removeEventListener('mousemove', this.processCableVertexDrag);
+        document.removeEventListener('mouseup', this.stopCableVertexDrag);
+        document.removeEventListener('touchmove', this.processCableVertexDrag as any);
+        document.removeEventListener('touchend', this.stopCableVertexDrag as any);
+
+        if (this.cableVertexDrag?.moved) {
+            globalThis.undostruct.store();
+        }
+
+        this.cableVertexDrag = null;
+    }
+
+    private insertCableVertexAt(element: SituationPlanElement, paperPos: { x: number; y: number }) {
+        const abs = this.getCableRunAbsolutePoints(element);
+        if (abs.length < 2) return;
+
+        const dist2PointToSegment = (p: any, a: any, b: any): number => {
+            const abx = b.x - a.x;
+            const aby = b.y - a.y;
+            const apx = p.x - a.x;
+            const apy = p.y - a.y;
+            const denom = abx * abx + aby * aby;
+            if (denom <= 0) return apx * apx + apy * apy;
+            let t = (apx * abx + apy * aby) / denom;
+            t = Math.max(0, Math.min(1, t));
+            const cx = a.x + t * abx;
+            const cy = a.y + t * aby;
+            const dx = p.x - cx;
+            const dy = p.y - cy;
+            return dx * dx + dy * dy;
+        };
+
+        let bestIndex = 0;
+        let bestD2 = Number.POSITIVE_INFINITY;
+        for (let i = 0; i < abs.length - 1; i++) {
+            const d2 = dist2PointToSegment(paperPos, abs[i], abs[i + 1]);
+            if (d2 < bestD2) {
+                bestD2 = d2;
+                bestIndex = i;
+            }
+        }
+
+        abs.splice(bestIndex + 1, 0, { x: paperPos.x, y: paperPos.y });
+        element.setCableRunAbsolute(abs, element.cableRun?.kring ?? null, (element.cableRun as any)?.cableSpec ?? null);
+        this.updateBoxContent(element);
+        this.updateSymbolAndLabelPosition(element);
+        globalThis.undostruct.store();
+    }
+
+    private cableRunCaptureMouseDown = (event: MouseEvent) => {
+        if (!this.isAddingCableRun) return;
+        if (event.button !== 0) return; // only left click
+
+        const rect = this.canvas.getBoundingClientRect();
+        const inside = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+        if (!inside) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        (event as any).stopImmediatePropagation?.();
+
+        const canvasx = event.clientX - rect.left;
+        const canvasy = event.clientY - rect.top;
+        const paperPos = this.canvasPosToPaperPos(canvasx, canvasy);
+        this.handleCableRunPoint(paperPos);
+    }
+
+    private cableRunCaptureMouseMove = (event: MouseEvent) => {
+        if (!this.isAddingCableRun) return;
+
+        const rect = this.canvas.getBoundingClientRect();
+        const inside = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+        if (!inside) {
+            this.cableRunPreviewCursorPos = null;
+            this.updateCableRunPreview();
+            return;
+        }
+
+        const canvasx = event.clientX - rect.left;
+        const canvasy = event.clientY - rect.top;
+        this.cableRunPreviewCursorPos = this.canvasPosToPaperPos(canvasx, canvasy);
+        this.updateCableRunPreview();
+    }
+
+    private cableRunCaptureTouchStart = (event: TouchEvent) => {
+        if (!this.isAddingCableRun) return;
+        const touch = event.touches[0] ?? event.changedTouches[0];
+        if (!touch) return;
+
+        const rect = this.canvas.getBoundingClientRect();
+        const inside = touch.clientX >= rect.left && touch.clientX <= rect.right && touch.clientY >= rect.top && touch.clientY <= rect.bottom;
+        if (!inside) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        (event as any).stopImmediatePropagation?.();
+
+        const canvasx = touch.clientX - rect.left;
+        const canvasy = touch.clientY - rect.top;
+        const paperPos = this.canvasPosToPaperPos(canvasx, canvasy);
+        this.handleCableRunPoint(paperPos);
+    }
+
+    private cableRunCaptureTouchMove = (event: TouchEvent) => {
+        if (!this.isAddingCableRun) return;
+        const touch = event.touches[0] ?? event.changedTouches[0];
+        if (!touch) return;
+
+        const rect = this.canvas.getBoundingClientRect();
+        const inside = touch.clientX >= rect.left && touch.clientX <= rect.right && touch.clientY >= rect.top && touch.clientY <= rect.bottom;
+        if (!inside) {
+            this.cableRunPreviewCursorPos = null;
+            this.updateCableRunPreview();
+            return;
+        }
+
+        const canvasx = touch.clientX - rect.left;
+        const canvasy = touch.clientY - rect.top;
+        this.cableRunPreviewCursorPos = this.canvasPosToPaperPos(canvasx, canvasy);
+        this.updateCableRunPreview();
+    }
+
+    private cableRunCaptureContextMenu = (event: MouseEvent) => {
+        if (!this.isAddingCableRun) return;
+        const rect = this.canvas.getBoundingClientRect();
+        const inside = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+        if (!inside) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        (event as any).stopImmediatePropagation?.();
+
+        // Right click finishes the cable run (or cancels if too short).
+        this.finishAddCableRun();
+    }
+
+    private connectionPointCaptureMouseDown = (event: MouseEvent) => {
+        if (!this.isAddingConnectionPoint) return;
+        if (event.button !== 0) return;
+
+        const rect = this.canvas.getBoundingClientRect();
+        const inside = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+        if (!inside) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        (event as any).stopImmediatePropagation?.();
+
+        const canvasx = event.clientX - rect.left;
+        const canvasy = event.clientY - rect.top;
+        const paperPos = this.canvasPosToPaperPos(canvasx, canvasy);
+        this.placeConnectionPoint(paperPos);
+    }
+
+    private connectionPointCaptureTouchStart = (event: TouchEvent) => {
+        if (!this.isAddingConnectionPoint) return;
+        const touch = event.touches[0] ?? event.changedTouches[0];
+        if (!touch) return;
+
+        const rect = this.canvas.getBoundingClientRect();
+        const inside = touch.clientX >= rect.left && touch.clientX <= rect.right && touch.clientY >= rect.top && touch.clientY <= rect.bottom;
+        if (!inside) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        (event as any).stopImmediatePropagation?.();
+
+        const canvasx = touch.clientX - rect.left;
+        const canvasy = touch.clientY - rect.top;
+        const paperPos = this.canvasPosToPaperPos(canvasx, canvasy);
+        this.placeConnectionPoint(paperPos);
+    }
+
+    private connectionPointCaptureContextMenu = (event: MouseEvent) => {
+        if (!this.isAddingConnectionPoint) return;
+        const rect = this.canvas.getBoundingClientRect();
+        const inside = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+        if (!inside) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        (event as any).stopImmediatePropagation?.();
+
+        // Right-click cancels the mode to avoid getting stuck.
+        this.cancelAddConnectionPoint();
+    }
+
+    private startAddConnectionPoint(forcePrompt: boolean = false) {
+        const existingIds: string[] = Array.from(new Set<string>(
+            (this.sitplan?.elements ?? [])
+                .filter((e: any) => e?.kind === 'connectionPoint' && e?.connectionPoint?.connectionId != null)
+                .map((e: any) => String(e.connectionPoint.connectionId).trim())
+                .filter((s: string) => s !== '')
+        ));
+
+        if (forcePrompt || this.pendingConnectionId == null) {
+            const defaultId = existingIds[0] ?? 'CP1';
+            const chosen = window.prompt('Verbindings-ID (zelfde ID op meerdere verdiepingen = zelfde stijgleiding):', defaultId) as (string | null);
+            if (chosen == null) return;
+            const trimmed = chosen.trim();
+            this.pendingConnectionId = trimmed === '' ? defaultId : trimmed;
+        }
+
+        this.isAddingConnectionPoint = true;
+        if (this.previousCanvasCursorConnection == null) this.previousCanvasCursorConnection = this.canvas.style.cursor;
+        this.canvas.style.cursor = 'crosshair';
+        this.paper.style.cursor = 'crosshair';
+        document.body.classList.add('connection-point-mode');
+        this.clearSelection();
+
+        document.addEventListener('mousedown', this.connectionPointCaptureMouseDown, true);
+        document.addEventListener('touchstart', this.connectionPointCaptureTouchStart, { passive: false, capture: true } as any);
+        document.addEventListener('contextmenu', this.connectionPointCaptureContextMenu, true);
+    }
+
+    private cancelAddConnectionPoint() {
+        if (!this.isAddingConnectionPoint) return;
+        this.isAddingConnectionPoint = false;
+        this.pendingConnectionId = null;
+
+        document.removeEventListener('mousedown', this.connectionPointCaptureMouseDown, true);
+        document.removeEventListener('touchstart', this.connectionPointCaptureTouchStart as any, true);
+        document.removeEventListener('contextmenu', this.connectionPointCaptureContextMenu, true);
+
+        if (this.previousCanvasCursorConnection != null) {
+            this.canvas.style.cursor = this.previousCanvasCursorConnection;
+            this.previousCanvasCursorConnection = null;
+        } else {
+            this.canvas.style.cursor = '';
+        }
+
+        this.paper.style.cursor = '';
+        document.body.classList.remove('connection-point-mode');
+    }
+
+    private placeConnectionPoint(paperPos: { x: number, y: number }) {
+        const connectionId = String(this.pendingConnectionId ?? '').trim() || 'CP1';
+
+        const element: SituationPlanElement = new SituationPlanElement();
+        element.setVars({ page: this.sitplan.activePage, movable: true, labelfontsize: this.sitplan.defaults.fontsize });
+        element.setConnectionPointAbsolute(paperPos, connectionId);
+        this.sitplan.addElement(element);
+        this.syncToSitPlan();
+        this.clearSelection();
+        this.redraw();
+        this.selectOneBox(element.boxref);
+        this.bringToFront(true);
+
+        this.cancelAddConnectionPoint();
+        globalThis.undostruct.store();
+    }
 
     private distanceLineCaptureMouseDown = (event: MouseEvent) => {
         if (!this.isAddingDistanceLine) return;
@@ -201,6 +540,7 @@ export class SituationPlanView {
             if (document.getElementById('outerdiv')?.style.display === 'none') return;
             if (document.getElementById('popupOverlay') != null) return;
             if (this.isAddingDistanceLine) return;
+            if (this.isAddingCableRun) return;
 
             event.preventDefault();
 
@@ -238,7 +578,7 @@ export class SituationPlanView {
             /* no element selected */
             null,
             /* OK button callback */
-            (electroid, adrestype, adres, adreslocation, labelfontsize, scale, rotate) => {
+            (electroid, adrestype, adres, adreslocation, labelfontsize, scale, rotate, heightCm) => {
                 this.attachArrowKeys();
                 this.addElectroItem(
                     electroid,
@@ -248,6 +588,7 @@ export class SituationPlanView {
                     labelfontsize,
                     scale,
                     rotate,
+                    heightCm,
                     paperPos.x,
                     paperPos.y
                 );
@@ -612,6 +953,15 @@ export class SituationPlanView {
             this.startAddDistanceLine();
         });
 
+        this.contextMenu.addMenuItem('Verbindingspunt…', () => {
+            this.startAddConnectionPoint(true);
+        });
+
+        this.contextMenu.addMenuItem('Kabel…', () => {
+            // From the context menu we force prompting so the user can override the default kring cable spec.
+            this.startAddCableRun(true);
+        });
+
         this.contextMenu.show(event);
     }
 
@@ -650,6 +1000,140 @@ export class SituationPlanView {
         document.body.classList.remove('distance-line-mode');
     }
 
+    private startAddCableRun(forcePrompt: boolean = false) {
+        const kring = this.sideBar?.getSelectedKring?.();
+        if (kring == null || kring === '') {
+            alert('Selecteer eerst een kring in de sidebar (open een kring) om kabels voor die kring te tekenen.');
+            return;
+        }
+
+        const defaultSpec = this.getDefaultCableSpecForKring(kring);
+        this.pendingCableRunSpec = defaultSpec ?? null;
+
+        // Only ask if there is no default (or when explicitly forced).
+        if (forcePrompt || this.pendingCableRunSpec == null) {
+            const cableSpecInput = window.prompt('Kabeltype/spec voor deze kabelrun:', this.pendingCableRunSpec ?? '');
+            if (cableSpecInput == null) return;
+            const spec = cableSpecInput.trim();
+            this.pendingCableRunSpec = (spec === '') ? (defaultSpec ?? null) : spec;
+        }
+
+        this.isAddingCableRun = true;
+        this.cableRunPoints = [];
+        this.cableRunPreviewCursorPos = null;
+        if (this.previousCanvasCursorCable == null) this.previousCanvasCursorCable = this.canvas.style.cursor;
+        this.canvas.style.cursor = 'crosshair';
+        this.paper.style.cursor = 'crosshair';
+        document.body.classList.add('cable-run-mode');
+        this.clearSelection();
+
+        document.addEventListener('mousedown', this.cableRunCaptureMouseDown, true);
+        document.addEventListener('mousemove', this.cableRunCaptureMouseMove, true);
+        document.addEventListener('touchstart', this.cableRunCaptureTouchStart, { passive: false, capture: true } as any);
+        document.addEventListener('touchmove', this.cableRunCaptureTouchMove, { passive: false, capture: true } as any);
+        document.addEventListener('contextmenu', this.cableRunCaptureContextMenu, true);
+    }
+
+    private cancelAddCableRun() {
+        if (!this.isAddingCableRun) return;
+        this.isAddingCableRun = false;
+        this.cableRunPoints = [];
+        this.cableRunPreviewCursorPos = null;
+        this.pendingCableRunSpec = null;
+
+        this.removeCableRunPreview();
+
+        document.removeEventListener('mousedown', this.cableRunCaptureMouseDown, true);
+        document.removeEventListener('mousemove', this.cableRunCaptureMouseMove, true);
+        document.removeEventListener('touchstart', this.cableRunCaptureTouchStart as any, true);
+        document.removeEventListener('touchmove', this.cableRunCaptureTouchMove as any, true);
+        document.removeEventListener('contextmenu', this.cableRunCaptureContextMenu, true);
+
+        if (this.previousCanvasCursorCable != null) {
+            this.canvas.style.cursor = this.previousCanvasCursorCable;
+            this.previousCanvasCursorCable = null;
+        } else {
+            this.canvas.style.cursor = '';
+        }
+
+        this.paper.style.cursor = '';
+        document.body.classList.remove('cable-run-mode');
+    }
+
+    private handleCableRunPoint(paperPos: { x: number, y: number }) {
+        this.cableRunPoints.push(paperPos);
+        this.updateCableRunPreview();
+    }
+
+    private removeCableRunPreview() {
+        const el = this.cableRunPreviewElement;
+        if (!el) return;
+        try { el.boxref?.remove(); } catch { }
+        try { el.boxlabelref?.remove(); } catch { }
+        this.cableRunPreviewElement = null;
+    }
+
+    private updateCableRunPreview() {
+        if (!this.isAddingCableRun) {
+            this.removeCableRunPreview();
+            return;
+        }
+
+        const kring = this.sideBar?.getSelectedKring?.() ?? null;
+
+        const previewPoints: Array<{ x: number, y: number }> = this.cableRunPoints.slice();
+        if (previewPoints.length >= 1 && this.cableRunPreviewCursorPos) previewPoints.push(this.cableRunPreviewCursorPos);
+
+        if (previewPoints.length < 2) {
+            this.removeCableRunPreview();
+            return;
+        }
+
+        if (!this.cableRunPreviewElement) {
+            const element = new SituationPlanElement();
+            element.setVars({ page: this.sitplan.activePage, movable: false, labelfontsize: this.sitplan.defaults.fontsize });
+            element.visible = true;
+            element.setCableRunAbsolute(previewPoints, kring, this.pendingCableRunSpec);
+            this.makeBox(element);
+            element.boxref?.classList?.add('cable-run-preview');
+            element.boxlabelref?.classList?.add('hidden');
+            this.cableRunPreviewElement = element;
+        } else {
+            const element = this.cableRunPreviewElement;
+            element.page = this.sitplan.activePage;
+            element.visible = true;
+            element.setCableRunAbsolute(previewPoints, kring, this.pendingCableRunSpec);
+            this.updateBoxContent(element);
+        }
+
+        this.updateSymbolAndLabelPosition(this.cableRunPreviewElement);
+    }
+
+    private finishAddCableRun() {
+        if (!this.isAddingCableRun) return;
+        const pts = this.cableRunPoints.slice();
+        const kring = this.sideBar?.getSelectedKring?.() ?? null;
+
+        if (pts.length < 2) {
+            this.cancelAddCableRun();
+            return;
+        }
+
+        const element: SituationPlanElement = new SituationPlanElement();
+        element.setVars({ page: this.sitplan.activePage, movable: true, labelfontsize: this.sitplan.defaults.fontsize });
+        element.setCableRunAbsolute(pts, kring, this.pendingCableRunSpec);
+        this.sitplan.addElement(element);
+        this.syncToSitPlan();
+        this.clearSelection();
+        this.redraw();
+        this.selectOneBox(element.boxref);
+        this.bringToFront(true);
+
+        this.cancelAddCableRun();
+
+        globalThis.undostruct.store();
+    }
+
     private handleDistanceLinePoint(paperPos: { x: number, y: number }) {
         if (this.distanceLineFirstPoint == null) {
             this.distanceLineFirstPoint = paperPos;
@@ -660,6 +1144,20 @@ export class SituationPlanView {
         const second = paperPos;
         this.distanceLineFirstPoint = null;
 
+        const metersPerUnit = this.sitplan?.getMetersPerUnitForPage?.(this.sitplan.activePage) ?? null;
+
+        // If the page is already calibrated, we can compute the distance automatically.
+        if (metersPerUnit != null) {
+            const dx = second.x - first.x;
+            const dy = second.y - first.y;
+            const lenUnits = Math.sqrt(dx * dx + dy * dy);
+            const distanceCm = Math.round(lenUnits * metersPerUnit * 100);
+            this.addDistanceLine(first, second, Number.isFinite(distanceCm) ? distanceCm : null);
+            this.cancelAddDistanceLine();
+            return;
+        }
+
+        // Otherwise ask for the real-world distance so we can calibrate.
         const value = window.prompt('Afstand in centimeter (cm):', '');
         if (value == null) {
             this.cancelAddDistanceLine();
@@ -693,7 +1191,7 @@ export class SituationPlanView {
             }
         }
 
-        if (!this.isAddingDistanceLine) {
+        if (!this.isAddingDistanceLine && !this.isAddingCableRun) {
             this.clearSelection();
             return;
         }
@@ -718,6 +1216,27 @@ export class SituationPlanView {
         })();
         if (!paperPos) return;
         this.handleDistanceLinePoint(paperPos);
+    }
+
+    private getDefaultCableSpecForKring(kringName: string): string | null {
+        try {
+            const struct: any = globalThis.structure as any;
+            const data: any[] = Array.isArray(struct?.data) ? struct.data : [];
+            const needle = String(kringName ?? '').trim();
+            if (needle === '') return null;
+
+            for (const item of data) {
+                if (!item?.getType) continue;
+                if (item.getType() !== 'Kring') continue;
+                const name = String(item?.props?.naam ?? '').trim();
+                if (name !== needle) continue;
+                const spec = String(item?.props?.type_kabel ?? '').trim();
+                return spec === '' ? null : spec;
+            }
+        } catch {
+            // ignore
+        }
+        return null;
     }
 
     private startCanvasPan(event: MouseEvent) {
@@ -796,6 +1315,14 @@ export class SituationPlanView {
         // Event handlers voor het bewegen met muis of touch
         box.addEventListener('mousedown', this.startDrag);
         box.addEventListener('touchstart', this.startDrag);
+        box.addEventListener('dblclick', (event: MouseEvent) => {
+            const sitPlanElement = (event.currentTarget as any)?.sitPlanElementRef as SituationPlanElement | null;
+            if (!sitPlanElement || sitPlanElement.kind !== 'cableRun') return;
+            if (document.getElementById('popupOverlay') != null) return;
+            this.contextMenu.hide();
+            const paperPos = this.mouseEventToPaperPos(event);
+            this.insertCableVertexAt(sitPlanElement, paperPos);
+        });
         boxlabel.addEventListener('mousedown', this.startDrag);
         boxlabel.addEventListener('touchstart', this.startDrag);
         box.addEventListener('contextmenu', this.showContextMenu);
@@ -1206,11 +1733,12 @@ export class SituationPlanView {
 
         // Geklikte box identificeren. Hou er rekening mee dat ook op een boxlabel kan geklikt zijn
         let box: HTMLElement = null;
-        let sitPlanElement = event.target.sitPlanElementRef;
+        const currentTarget = event.currentTarget as HTMLElement | null;
+        let sitPlanElement = (currentTarget as any)?.sitPlanElementRef as SituationPlanElement | null;
         if (sitPlanElement == null) return;
 
-        if (event.target.classList.contains('box')) box = event.target;
-        else if (event.target.classList.contains('boxlabel')) box = sitPlanElement.boxref;
+        if (currentTarget?.classList?.contains('box')) box = currentTarget;
+        else if (currentTarget?.classList?.contains('boxlabel')) box = sitPlanElement.boxref;
         if (box == null) return;
 
         // Nu gaan we de box selecteren. Dit moet zowel voor de linker als de rechter muisknop
@@ -1225,6 +1753,29 @@ export class SituationPlanView {
 
         // Indien de rechter muisknop werd gebruikt gaan we na selectie niet verder met slepen
         if (event.button == 2) return;
+
+        // Cable-run vertex edit gestures
+        if (sitPlanElement.kind === 'cableRun') {
+            const vertexIndex = this.getCableVertexIndexFromEventTarget(event.target);
+            if (vertexIndex != null) {
+                // Alt/Option-click removes a vertex (keep at least 2 points)
+                if (event.altKey) {
+                    const abs = this.getCableRunAbsolutePoints(sitPlanElement);
+                    if (abs.length > 2) {
+                        abs.splice(vertexIndex, 1);
+                        sitPlanElement.setCableRunAbsolute(abs, sitPlanElement.cableRun?.kring ?? null, (sitPlanElement.cableRun as any)?.cableSpec ?? null);
+                        this.updateBoxContent(sitPlanElement);
+                        this.updateSymbolAndLabelPosition(sitPlanElement);
+                        globalThis.undostruct.store();
+                    }
+                    return;
+                }
+
+                // Drag vertex
+                this.startCableVertexDrag(event, sitPlanElement, vertexIndex);
+                return;
+            }
+        }
 
         // OK, het is een touch event of de linkse knop dus we gaan verder met slepen maar controlleren eerst of we dat wel mogen
         // we doen dit op basis van de box waarop we geklikt hebben, dit bijft de referentie voor het slepen, ook al bewegen
@@ -1464,9 +2015,15 @@ export class SituationPlanView {
             if (document.getElementById('outerdiv').style.display == 'none') return; // Check if we are really in the situationplan, if not, the default scrolling action will be executed by the browser
             if (document.getElementById('popupOverlay') != null) return; // We need the keys when editing symbol properties.
 
-            if (event.key === 'Escape' && this.isAddingDistanceLine) {
-                this.cancelAddDistanceLine();
-                return;
+            if (event.key === 'Escape') {
+                if (this.isAddingDistanceLine) {
+                    this.cancelAddDistanceLine();
+                    return;
+                }
+                if (this.isAddingCableRun) {
+                    this.cancelAddCableRun();
+                    return;
+                }
             }
 
             let selectedBoxes = this.selected.getAllSelected().filter(e => e != null);
@@ -1778,6 +2335,7 @@ export class SituationPlanView {
         labelfontsize: number,
         scale: number,
         rotate: number,
+        heightCm: number | null = null,
         posx: number = null,
         posy: number = null,
         options: any = { undoStore: true }) => {
@@ -1794,6 +2352,7 @@ export class SituationPlanView {
                 adrestype, adres, adreslocation, labelfontsize,
                 scale, rotate);
             if (element != null) {
+                element.heightCm = heightCm;
                 this.syncToSitPlan();
                 this.clearSelection();
                 this.redraw();
@@ -1818,9 +2377,9 @@ export class SituationPlanView {
                 /* no element selected */
                 null,
                 /* OK button callback */
-                (electroid, adrestype, adres, adreslocation, labelfontsize, scale, rotate) => {
+                (electroid, adrestype, adres, adreslocation, labelfontsize, scale, rotate, heightCm) => {
                     this.attachArrowKeys();
-                    this.addElectroItem(electroid, adrestype as AdresType, adres, adreslocation as AdresLocation, labelfontsize, scale, rotate);
+                    this.addElectroItem(electroid, adrestype as AdresType, adres, adreslocation as AdresLocation, labelfontsize, scale, rotate, heightCm);
                 },
                 /* Cancel button callback */
                 () => {
@@ -1878,6 +2437,63 @@ export class SituationPlanView {
                 }
                 if (!sitPlanElement.distanceLine) sitPlanElement.distanceLine = { x1: 0, y1: 0, x2: 1, y2: 1, distanceCm: null };
                 (sitPlanElement.distanceLine as any).distanceCm = distanceCm;
+
+                // If real-world distance is provided, calibrate page scale using the stored endpoints.
+                if (distanceCm != null && sitPlanElement.distanceLine) {
+                    const dl: any = sitPlanElement.distanceLine as any;
+                    const dx = Number(dl.x2) - Number(dl.x1);
+                    const dy = Number(dl.y2) - Number(dl.y1);
+                    const lenUnits = Math.sqrt(dx * dx + dy * dy);
+                    if (Number.isFinite(lenUnits) && lenUnits > 0) {
+                        const metersPerUnit = (distanceCm / 100) / lenUnits;
+                        this.sitplan.setMetersPerUnitForPage(sitPlanElement.page, metersPerUnit);
+                    }
+                }
+                this.updateBoxContent(sitPlanElement);
+                this.updateSymbolAndLabelPosition(sitPlanElement);
+                globalThis.undostruct.store();
+                return;
+            }
+
+            if (sitPlanElement.kind === 'cableRun') {
+                const current = (sitPlanElement.cableRun as any)?.cableSpec;
+                const kring = (sitPlanElement.cableRun as any)?.kring;
+                const defaultSpec = (typeof kring === 'string' && kring.trim() !== '') ? this.getDefaultCableSpecForKring(kring) : null;
+                const initial = (current != null && String(current).trim() !== '') ? String(current) : (defaultSpec ?? '');
+                const value = window.prompt('Kabeltype/spec voor deze kabelrun:', initial);
+                this.attachArrowKeys();
+                if (value == null) {
+                    if (cancelCallback) cancelCallback();
+                    return;
+                }
+                const trimmed = value.trim();
+                if (!sitPlanElement.cableRun) sitPlanElement.cableRun = { points: [], kring: kring ?? null, cableSpec: null } as any;
+                (sitPlanElement.cableRun as any).cableSpec = (trimmed === '') ? null : trimmed;
+
+                this.updateBoxContent(sitPlanElement);
+                this.updateSymbolAndLabelPosition(sitPlanElement);
+                globalThis.undostruct.store();
+                return;
+            }
+
+            if (sitPlanElement.kind === 'connectionPoint') {
+                const current = (sitPlanElement.connectionPoint as any)?.connectionId;
+                const value = window.prompt('Verbindings-ID (zelfde ID = zelfde verbinding):', current == null ? '' : String(current));
+                this.attachArrowKeys();
+                if (value == null) {
+                    if (cancelCallback) cancelCallback();
+                    return;
+                }
+                const trimmed = value.trim();
+                if (trimmed === '') {
+                    alert('Verbindings-ID mag niet leeg zijn.');
+                    if (cancelCallback) cancelCallback();
+                    return;
+                }
+
+                if (!sitPlanElement.connectionPoint) sitPlanElement.connectionPoint = { connectionId: trimmed } as any;
+                (sitPlanElement.connectionPoint as any).connectionId = trimmed;
+
                 this.updateBoxContent(sitPlanElement);
                 this.updateSymbolAndLabelPosition(sitPlanElement);
                 globalThis.undostruct.store();
@@ -1886,7 +2502,7 @@ export class SituationPlanView {
 
             SituationPlanView_ElementPropertiesPopup(sitPlanElement,
                 /* OK button callback */
-                (electroid, adrestype, adres, adreslocation, labelfontsize, scale, rotate) => {
+                (electroid, adrestype, adres, adreslocation, labelfontsize, scale, rotate, heightCm) => {
                     this.attachArrowKeys();
                     if (electroid != null) {
                         sitPlanElement.setElectroItemId(electroid);
@@ -1895,6 +2511,7 @@ export class SituationPlanView {
                     sitPlanElement.labelfontsize = labelfontsize;
                     sitPlanElement.setscale(scale);
                     sitPlanElement.rotate = rotate;
+                    sitPlanElement.heightCm = heightCm;
 
                     this.updateBoxContent(sitPlanElement); //content needs to be updated first to know the size of the box
                     this.updateSymbolAndLabelPosition(sitPlanElement);
@@ -1941,6 +2558,17 @@ export class SituationPlanView {
         const element: SituationPlanElement = new SituationPlanElement();
         element.setVars({ page: this.sitplan.activePage, movable: true, labelfontsize: this.sitplan.defaults.fontsize });
         element.setDistanceLineAbsolute(p1, p2, distanceCm);
+
+        // If a real-world distance is provided, use it to calibrate the scale for this page.
+        if (distanceCm != null) {
+            const dx = p2.x - p1.x;
+            const dy = p2.y - p1.y;
+            const lenUnits = Math.sqrt(dx * dx + dy * dy);
+            if (Number.isFinite(lenUnits) && lenUnits > 0) {
+                const metersPerUnit = (distanceCm / 100) / lenUnits;
+                this.sitplan.setMetersPerUnitForPage(this.sitplan.activePage, metersPerUnit);
+            }
+        }
         this.sitplan.addElement(element);
         this.syncToSitPlan();
         this.clearSelection();
@@ -2027,6 +2655,18 @@ export class SituationPlanView {
             </div>`;
 
         outputleft += `
+            <div class="icon" id="button_Add_connectionPoint">
+                <span class="icon-image" style="font-size:24px">📍</span>
+                <span class="icon-text">Verbinding</span>
+            </div>`;
+
+        outputleft += `
+            <div class="icon" id="button_Add_cableRun">
+                <span class="icon-image" style="font-size:24px">🧵</span>
+                <span class="icon-text">Kabel</span>
+            </div>`;
+
+        outputleft += `
             <div class="icon" id="button_Delete">
                 <span class="icon-image" style="font-size:24px">🗑</span>
                 <span class="icon-text">Verwijder</span>
@@ -2090,6 +2730,11 @@ export class SituationPlanView {
                         <button id="btn_sitplan_addpage" ${(this.sitplan.activePage != this.sitplan.numPages ? ' disabled' : '')}>Nieuw</button>
                         <button id="btn_sitplan_delpage" style="background-color:red;" ${(this.sitplan.numPages <= 1 ? ' disabled' : '')}>&#9851;</button>
                     </span>
+                    <br><span style="display: inline-block; white-space: nowrap; margin-top: 4px;">Verdieping
+                        <select id="id_sitplanfloor" style="max-width: 160px;"></select>
+                        <button id="btn_sitplan_addfloor">Nieuw</button>
+                        <button id="btn_sitplan_pagesettings" title="Instellingen pagina/verdieping">⚙</button>
+                    </span>
                 </center>
             </div>`;
 
@@ -2129,7 +2774,17 @@ export class SituationPlanView {
             this.contextMenu.hide();
             this.sitplan.numPages++;
             this.selectPage(this.sitplan.numPages);
+            // Default the new page to the current page's floor (or first floor)
+            this.sitplan.ensurePageFloorIdsLength();
+            const currentFloor = this.sitplan.getFloorIdForPage(Math.max(1, this.sitplan.activePage - 1));
+            if (this.sitplan.numPages >= 1) this.sitplan.setFloorIdForPage(this.sitplan.numPages, currentFloor);
+
+            // Default the new page scale to the previous page scale (or null)
+            this.sitplan.ensurePageMetersPerUnitLength();
+            const currentScale = this.sitplan.getMetersPerUnitForPage(Math.max(1, this.sitplan.activePage - 1));
+            this.sitplan.setMetersPerUnitForPage(this.sitplan.numPages, currentScale);
             globalThis.undostruct.store();
+            this.updateRibbon();
         };
 
         document.getElementById('btn_sitplan_delpage')!.onclick = () => {
@@ -2145,9 +2800,20 @@ export class SituationPlanView {
                                     element.page--;
                                 }
                             });
+
+                            // Shift floor mapping for pages > deleted page
+                            this.sitplan.ensurePageFloorIdsLength();
+                            this.sitplan.pageFloorIds.splice(this.sitplan.activePage - 1, 1);
+
+                            // Shift scale mapping for pages > deleted page
+                            this.sitplan.ensurePageMetersPerUnitLength();
+                            this.sitplan.pageMetersPerUnit.splice(this.sitplan.activePage - 1, 1);
                             if (this.sitplan.numPages > 1) this.sitplan.numPages--;
+                            this.sitplan.ensurePageFloorIdsLength();
+                            this.sitplan.ensurePageMetersPerUnitLength();
                             this.selectPage(Math.min(this.sitplan.activePage, this.sitplan.numPages))
                             globalThis.undostruct.store();
+                            this.updateRibbon();
                         }).bind(this)
                     },
                     { text: 'Annuleren', callback: () => { } }
@@ -2165,6 +2831,16 @@ export class SituationPlanView {
             this.contextMenu.hide();
             this.startAddDistanceLine();
         });
+
+        this.event_manager.addEventListener(document.getElementById('button_Add_connectionPoint'), 'click', () => {
+            this.contextMenu.hide();
+            this.startAddConnectionPoint(true);
+        });
+
+        this.event_manager.addEventListener(document.getElementById('button_Add_cableRun'), 'click', () => {
+            this.contextMenu.hide();
+            this.startAddCableRun(false);
+        });
         this.attachDeleteButton(document.getElementById('button_Delete'));
 
         // -- Actions om visuals te bewerken --
@@ -2181,6 +2857,171 @@ export class SituationPlanView {
         this.attachZoomButton(document.getElementById('button_zoomin'), 0.1);
         this.attachZoomButton(document.getElementById('button_zoomout'), -0.1);
         this.attachZoomToFitButton(document.getElementById('button_zoomToFit'));
+
+        // -- Floors: populate dropdown + handlers --
+
+        this.sitplan.ensureFloorsInitialized();
+        this.sitplan.ensurePageFloorIdsLength();
+        this.sitplan.ensurePageMetersPerUnitLength();
+
+        const floorSelect = document.getElementById('id_sitplanfloor') as HTMLSelectElement | null;
+        if (floorSelect) {
+            const currentFloorId = this.sitplan.getFloorIdForPage(this.sitplan.activePage);
+            floorSelect.innerHTML = '';
+
+            // Optional "none" option
+            const optNone = document.createElement('option');
+            optNone.value = '';
+            optNone.textContent = '(geen)';
+            floorSelect.appendChild(optNone);
+
+            for (const f of this.sitplan.floors) {
+                const opt = document.createElement('option');
+                opt.value = f.id;
+                opt.textContent = f.name;
+                if (currentFloorId === f.id) opt.selected = true;
+                floorSelect.appendChild(opt);
+            }
+
+            if (currentFloorId == null) {
+                floorSelect.value = '';
+            } else {
+                floorSelect.value = currentFloorId;
+            }
+
+            floorSelect.onchange = (event: Event) => {
+                this.contextMenu.hide();
+                const target = event.target as HTMLSelectElement;
+                const value = target.value;
+                this.sitplan.setFloorIdForPage(this.sitplan.activePage, value === '' ? null : value);
+                globalThis.undostruct.store('changeFloor');
+            };
+        }
+
+        const addFloorBtn = document.getElementById('btn_sitplan_addfloor') as HTMLButtonElement | null;
+        if (addFloorBtn) {
+            addFloorBtn.onclick = () => {
+                this.contextMenu.hide();
+                const name = prompt('Naam van de verdieping:', 'Nieuwe verdieping');
+                if (name == null) return;
+                const trimmed = name.trim();
+                if (trimmed === '') return;
+
+                const elevationStr = prompt('Hoogte/elevatie in cm (leeg = onbekend):', '');
+                if (elevationStr == null) return;
+                const elevationTrimmed = elevationStr.trim();
+                const elevationCm = (elevationTrimmed === '') ? null : Number(elevationTrimmed.replace(',', '.'));
+                if (elevationTrimmed !== '' && !(Number.isFinite(elevationCm))) {
+                    alert('Ongeldige hoogte. Geef een getal in centimeter in (bv. 300), of laat leeg.');
+                    return;
+                }
+
+                const id = this.sitplan.addFloor(trimmed, elevationCm);
+                this.sitplan.setFloorIdForPage(this.sitplan.activePage, id);
+                globalThis.undostruct.store('addFloor');
+                this.updateRibbon();
+            };
+        }
+
+        const pageSettingsBtn = document.getElementById('btn_sitplan_pagesettings') as HTMLButtonElement | null;
+        if (pageSettingsBtn) {
+            pageSettingsBtn.onclick = () => {
+                this.contextMenu.hide();
+
+                this.sitplan.ensureFloorsInitialized();
+                this.sitplan.ensurePageFloorIdsLength();
+
+                const currentFloorId = this.sitplan.getFloorIdForPage(this.sitplan.activePage);
+                const floors = Array.isArray(this.sitplan.floors) ? this.sitplan.floors : [];
+
+                const floorOptions = ['<option value="">(geen)</option>']
+                    .concat(floors.map(f => {
+                        const selected = (currentFloorId != null && f.id === currentFloorId) ? ' selected' : '';
+                        return `<option value="${String(f.id).replace(/"/g, '&quot;')}"${selected}>${htmlspecialchars(String(f.name ?? ''))}</option>`;
+                    }))
+                    .join('');
+
+                const currentFloor = (currentFloorId != null) ? floors.find(f => f.id === currentFloorId) : null;
+                const nameValue = currentFloor ? htmlspecialchars(String(currentFloor.name ?? '')) : '';
+                const elevValue = (currentFloor && currentFloor.elevationCm != null && Number.isFinite(Number(currentFloor.elevationCm)))
+                    ? String(Number(currentFloor.elevationCm))
+                    : '';
+                const cablePlaneValue = (currentFloor && (currentFloor as any).cablePlaneOffsetCm != null && Number.isFinite(Number((currentFloor as any).cablePlaneOffsetCm)))
+                    ? String(Number((currentFloor as any).cablePlaneOffsetCm))
+                    : '-10';
+
+                const defaultDeviceHeightValue = (() => {
+                    const n = Number(this.sitplan?.defaults?.defaultDeviceHeightCm);
+                    return (Number.isFinite(n) && n >= 0) ? String(n) : '30';
+                })();
+
+                const body = [
+                    `<b>Pagina:</b> ${this.sitplan.activePage}<br>`,
+                    `<b>Verdieping op deze pagina:</b><br>`,
+                    `<select id="sp_settings_floor_select" style="max-width: 260px;">${floorOptions}</select><br>`,
+                    `<br><b>Algemeen</b><br>`,
+                    `Standaard toestel hoogte (cm): <input id="sp_settings_default_device_height" style="width: 120px;" type="number" step="1" min="0" value="${defaultDeviceHeightValue}"><br>`,
+                    `<br><b>Verdieping instellingen</b><br>`,
+                    `Naam: <input id="sp_settings_floor_name" style="width: 240px;" value="${nameValue}"><br>`,
+                    `Elevatie (cm): <input id="sp_settings_floor_elev" style="width: 120px;" type="number" step="1" value="${elevValue}"><br>`,
+                    `Kabelhoogte t.o.v. vloer (cm): <input id="sp_settings_floor_cableplane" style="width: 120px;" type="number" step="1" value="${cablePlaneValue}"><br>`,
+                    `<small>Tip: verticale lengtes gebruiken elevaties. Leeg = onbekend.</small>`
+                ].join('');
+
+                const dialog = new Dialog('Instellingen', body, [
+                    {
+                        text: 'Annuleer',
+                        callback: () => { }
+                    },
+                    {
+                        text: 'OK',
+                        callback: () => {
+                            const floorSel = document.getElementById('sp_settings_floor_select') as HTMLSelectElement | null;
+                            const nameIn = document.getElementById('sp_settings_floor_name') as HTMLInputElement | null;
+                            const elevIn = document.getElementById('sp_settings_floor_elev') as HTMLInputElement | null;
+                            const cablePlaneIn = document.getElementById('sp_settings_floor_cableplane') as HTMLInputElement | null;
+                            const defaultDeviceHeightIn = document.getElementById('sp_settings_default_device_height') as HTMLInputElement | null;
+
+                            if (defaultDeviceHeightIn) {
+                                const raw = String(defaultDeviceHeightIn.value ?? '').trim();
+                                const n = raw === '' ? 30 : Number(raw.replace(',', '.'));
+                                if (Number.isFinite(n) && n >= 0) {
+                                    this.sitplan.defaults.defaultDeviceHeightCm = n;
+                                }
+                            }
+
+                            const newFloorId = (floorSel?.value ?? '').trim();
+                            this.sitplan.setFloorIdForPage(this.sitplan.activePage, newFloorId === '' ? null : newFloorId);
+
+                            const selectedId = newFloorId === '' ? null : newFloorId;
+                            if (selectedId != null) {
+                                const floor = floors.find(f => f.id === selectedId);
+                                if (floor && nameIn) {
+                                    const trimmed = String(nameIn.value ?? '').trim();
+                                    if (trimmed !== '') floor.name = trimmed;
+                                }
+                                if (floor && elevIn) {
+                                    const raw = String(elevIn.value ?? '').trim();
+                                    const n = raw === '' ? null : Number(raw.replace(',', '.'));
+                                    floor.elevationCm = (n == null) ? null : (Number.isFinite(n) ? n : null);
+                                }
+                                if (floor && cablePlaneIn) {
+                                    const raw = String(cablePlaneIn.value ?? '').trim();
+                                    const n = raw === '' ? -10 : Number(raw.replace(',', '.'));
+                                    (floor as any).cablePlaneOffsetCm = (Number.isFinite(n) ? n : -10);
+                                }
+                            }
+
+                            globalThis.undostruct.store('pageFloorSettings');
+                            this.updateRibbon();
+                            this.sideBar.render();
+                        }
+                    }
+                ]);
+
+                dialog.show();
+            };
+        }
 
     }
 } // *** END CLASS ***

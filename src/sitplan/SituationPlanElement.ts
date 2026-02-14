@@ -15,7 +15,7 @@ export type AdresType = 'auto'|'manueel';
 export class SituationPlanElement {
 
     // -- Optional specialized element kinds (non-electro items) --
-    public kind: 'default' | 'distanceLine' = 'default';
+    public kind: 'default' | 'distanceLine' | 'cableRun' | 'connectionPoint' = 'default';
     public distanceLine?: {
         x1: number;
         y1: number;
@@ -26,6 +26,20 @@ export class SituationPlanElement {
 
         /** Backward compatibility: older files stored meters */
         distanceMeters?: number | null;
+    };
+
+    public cableRun?: {
+        // Polyline points relative to the element bounding box (like distanceLine).
+        points: Array<{ x: number; y: number }>;
+        // Kring name (as used by ElectroItemZoeker / sidebar grouping)
+        kring: string | null;
+        // Cable specification/type for BOM (e.g. "XVB Cca 3G2,5").
+        cableSpec?: string | null;
+    };
+
+    public connectionPoint?: {
+        // Shared id used across floors/pages to represent the same vertical riser.
+        connectionId: string;
     };
 
     // -- Identificatie --
@@ -55,6 +69,11 @@ export class SituationPlanElement {
     public posy:number = 0; //center positie-y in het schema
     public sizex:number = 0; //breedte
     public sizey:number = 0; //hoogte
+
+    // -- Hoogte (Z) boven afgewerkte vloer --
+    // Used later for cable length calculations (vertical drops / risers).
+    // Null means "unknown/not set".
+    public heightCm: number | null = null;
 
     public rotate:number = 0;
     private scale:number = globalThis.SITPLANVIEW_DEFAULT_SCALE;
@@ -346,6 +365,32 @@ export class SituationPlanElement {
             }
         }
 
+        if (this.kind === 'cableRun' && this.cableRun) {
+            const pts = this.cableRun.points ?? [];
+            const pointsAttr = pts.map(p => `${p.x},${p.y}`).join(' ');
+            const circles = pts.map((p, idx) => `<circle class="cable-run-vertex" data-cable-vertex-index="${idx}" cx="${p.x}" cy="${p.y}" r="3" fill="black" />`).join('');
+            const nextSvg = [
+                `<polyline class="cable-run-line" points="${pointsAttr}" fill="none" stroke="black" stroke-width="2" vector-effect="non-scaling-stroke" />`,
+                circles
+            ].join('');
+            if (this.svg !== nextSvg) {
+                this.svg = nextSvg;
+                this.needsViewUpdate = true;
+            }
+        }
+
+        if (this.kind === 'connectionPoint' && this.connectionPoint) {
+            const nextSvg = [
+                `<circle cx="8" cy="8" r="6" fill="white" stroke="black" stroke-width="2" vector-effect="non-scaling-stroke" />`,
+                `<line x1="8" y1="3" x2="8" y2="13" stroke="black" stroke-width="2" vector-effect="non-scaling-stroke" />`,
+                `<line x1="3" y1="8" x2="13" y2="8" stroke="black" stroke-width="2" vector-effect="non-scaling-stroke" />`
+            ].join('');
+            if (this.svg !== nextSvg) {
+                this.svg = nextSvg;
+                this.needsViewUpdate = true;
+            }
+        }
+
         if (this.isEendraadschemaSymbool()) {
             let electroItem = globalThis.structure.getElectroItemById(this.electroItemId);
             if (electroItem != null) electroItem.updateSituationPlanElement(this);
@@ -368,7 +413,8 @@ export class SituationPlanElement {
 
         } else { // Indien we de SVG willen gebruiken in een innerHTML van een div element en dit element dan zelf positioneren en roteren
 
-            return `<svg class="svg-icon" width="${this.sizex*this.scale}px" height="${this.sizey*this.scale}px" viewBox="0 0 ${this.sizex} ${this.sizey}">${this.svg}</svg>`;           
+            const extraClass = (this.kind === 'cableRun') ? ' cable-run-svg' : (this.kind === 'distanceLine') ? ' distance-line-svg' : '';
+            return `<svg class="svg-icon${extraClass}" width="${this.sizex*this.scale}px" height="${this.sizey*this.scale}px" viewBox="0 0 ${this.sizex} ${this.sizey}">${this.svg}</svg>`;           
         }
     }
 
@@ -478,8 +524,12 @@ export class SituationPlanElement {
         return {
             kind: this.kind,
             distanceLine: this.distanceLine,
+            cableRun: this.cableRun,
+            connectionPoint: this.connectionPoint,
             visible: this.visible,
             page: this.page,
+
+            heightCm: this.heightCm,
 
             posx: this.posx, 
             posy: this.posy,
@@ -515,6 +565,8 @@ export class SituationPlanElement {
     fromJsonObject(json: any) {
         this.kind = (json.kind != null) ? json.kind : 'default';
         this.distanceLine = json.distanceLine;
+        this.cableRun = json.cableRun;
+        this.connectionPoint = json.connectionPoint;
 
         // Backward compatibility: older files did not store visibility.
         this.visible = (json.visible != null) ? !!json.visible : true;
@@ -526,7 +578,28 @@ export class SituationPlanElement {
                 dl.distanceCm = dl.distanceMeters * 100;
             }
         }
+
+        // Safety: normalize cableRun structure
+        if (this.kind === 'cableRun' && this.cableRun) {
+            const cr: any = this.cableRun as any;
+            if (!Array.isArray(cr.points)) cr.points = [];
+            cr.points = cr.points
+                .filter((p: any) => p && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y)))
+                .map((p: any) => ({ x: Number(p.x), y: Number(p.y) }));
+            cr.kring = (cr.kring == null) ? null : String(cr.kring);
+            cr.cableSpec = (cr.cableSpec == null) ? null : String(cr.cableSpec);
+            if (typeof cr.cableSpec === 'string' && cr.cableSpec.trim() === '') cr.cableSpec = null;
+        }
+
+        // Safety: normalize connectionPoint structure
+        if (this.kind === 'connectionPoint' && this.connectionPoint) {
+            const cp: any = this.connectionPoint as any;
+            cp.connectionId = String(cp.connectionId ?? '').trim();
+            if (cp.connectionId === '') cp.connectionId = 'CP';
+        }
         this.page = json.page;
+
+        this.heightCm = (json.heightCm != null && Number.isFinite(Number(json.heightCm))) ? Number(json.heightCm) : null;
 
         this.posx = json.posx;
         this.posy = json.posy;
@@ -552,6 +625,19 @@ export class SituationPlanElement {
         this.needsViewUpdate = true; // TODO: make this more efficient as it will always trigger redraws, even when not needed
 
         this.movable = (json.movable != null) ? json.movable : true;
+    }
+
+    public setConnectionPointAbsolute(p: { x: number, y: number }, connectionId: string) {
+        const id = String(connectionId ?? '').trim() || 'CP';
+        this.kind = 'connectionPoint';
+        this.rotate = 0;
+        this.setscale(1);
+        this.sizex = 16;
+        this.sizey = 16;
+        this.posx = p.x;
+        this.posy = p.y;
+        this.connectionPoint = { connectionId: id };
+        this.needsViewUpdate = true;
     }
 
     public setDistanceLineAbsolute(p1: { x: number, y: number }, p2: { x: number, y: number }, distanceCm: number | null = null) {
@@ -580,6 +666,37 @@ export class SituationPlanElement {
             y2: p2.y - miny,
             distanceCm
         };
+
+        this.needsViewUpdate = true;
+    }
+
+    public setCableRunAbsolute(points: Array<{ x: number, y: number }>, kring: string | null, cableSpec: string | null = null) {
+        const pts = (points ?? []).filter(p => p && Number.isFinite(p.x) && Number.isFinite(p.y));
+        if (pts.length < 2) return;
+
+        const minx = Math.min(...pts.map(p => p.x));
+        const miny = Math.min(...pts.map(p => p.y));
+        const maxx = Math.max(...pts.map(p => p.x));
+        const maxy = Math.max(...pts.map(p => p.y));
+
+        const width = Math.max(1, maxx - minx);
+        const height = Math.max(1, maxy - miny);
+
+        this.kind = 'cableRun';
+        this.rotate = 0;
+        this.setscale(1);
+        this.sizex = width;
+        this.sizey = height;
+        this.posx = minx + width / 2;
+        this.posy = miny + height / 2;
+
+        this.cableRun = {
+            points: pts.map(p => ({ x: p.x - minx, y: p.y - miny })),
+            kring: kring,
+            cableSpec: (cableSpec == null) ? null : String(cableSpec)
+        };
+
+        if (typeof this.cableRun.cableSpec === 'string' && this.cableRun.cableSpec.trim() === '') this.cableRun.cableSpec = null;
 
         this.needsViewUpdate = true;
     }

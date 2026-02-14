@@ -42,7 +42,7 @@ import { formatFloat, htmlspecialchars, trimString } from "../general";
 
 export function SituationPlanView_ElementPropertiesPopup(sitplanElement: SituationPlanElement, 
                          callbackOK: (id: number|null, adresType: string, adres: string, selectAdresLocation: string,
-                                      labelfontsize: number, scale: number, rotation: number) => void,
+                                      labelfontsize: number, scale: number, rotation: number, heightCm: number|null) => void,
                          callbackCancel: () => void = () => {},
                          options: any = {} ) {
 
@@ -353,6 +353,10 @@ export function SituationPlanView_ElementPropertiesPopup(sitplanElement: Situati
                     <label for="rotationInput" style="margin-right: 10px; display: inline-block;">Rotatie (°):</label>
                     <input id="rotationInput" style="width: 100px;" type="number" min="0" max="360" step="10" value="0">
                 </div>
+                <div style="display: flex; margin-bottom: 20px; align-items: center;">
+                    <label for="heightInput" style="margin-right: 10px; display: inline-block; white-space: nowrap;">Hoogte (cm):</label>
+                    <input id="heightInput" style="width: 100px;" type="number" min="0" step="1" value="">
+                </div>
                 <div id="setDefaultContainer" style="display: flex; margin-bottom: 20px; align-items: flex-start;">
                     <input type="checkbox" id="setDefaultCheckbox">
                     ${ (options.toonTekenGrootteStandaardVoorNieuweObjecten)
@@ -387,6 +391,7 @@ export function SituationPlanView_ElementPropertiesPopup(sitplanElement: Situati
                 const fontSizeInput = popupWindow.querySelector('#fontSizeInput') as HTMLInputElement;           
             const scaleInput = popupWindow.querySelector('#scaleInput') as HTMLInputElement;
             const rotationInput = popupWindow.querySelector('#rotationInput') as HTMLInputElement;
+            const heightInput = popupWindow.querySelector('#heightInput') as HTMLInputElement;
             const setDefaultCheckbox = popupWindow.querySelector('#setDefaultCheckbox') as HTMLInputElement;
             const okButton = popupWindow.querySelector('#okButton') as HTMLButtonElement;
             const cancelButton = popupWindow.querySelector('#cancelButton') as HTMLButtonElement;
@@ -420,11 +425,13 @@ export function SituationPlanView_ElementPropertiesPopup(sitplanElement: Situati
         }
         scaleInput.value = formatFloat(sitplanElement.getscale()*100,6);
         rotationInput.value = formatFloat(sitplanElement.rotate,2);
+        heightInput.value = (sitplanElement.heightCm == null ? '' : formatFloat(sitplanElement.heightCm, 2));
     } else { // Form werd aangeroepen om een nieuw element te creëren
         selectAdresTypeChanged();
         fontSizeInput.value = formatFloat(globalThis.structure.sitplan.defaults.fontsize,2);
         scaleInput.value = formatFloat(globalThis.structure.sitplan.defaults.scale*100,6);
         selectAdresLocation.value = 'rechts';
+        heightInput.value = '';
     }
 
     if (options.toonElementZoeker == null) options.toonElementZoeker = true;
@@ -478,6 +485,13 @@ export function SituationPlanView_ElementPropertiesPopup(sitplanElement: Situati
         let returnId = (trimString(electroItemIdInput.value) == '' ? null : Number(electroItemIdInput.value));
         if (!(isNumeric(scaleInput.value)) || (Number(scaleInput.value) <= 0)) scaleInput.value = String(globalThis.structure.sitplan.defaults.scale*100);
         if (!(isNumeric(rotationInput.value))) rotationInput.value = String(0);
+
+        let returnHeightCm: number | null = null;
+        if (trimString(heightInput.value) !== '') {
+            if (isNumeric(heightInput.value) && Number(heightInput.value) >= 0) {
+                returnHeightCm = Number(heightInput.value);
+            }
+        }
         
         if (setDefaultCheckbox.checked) {
             if ( (sitplanElement == null) || ( (sitplanElement != null) && (sitplanElement.getElectroItemId() != null) ) )
@@ -485,7 +499,7 @@ export function SituationPlanView_ElementPropertiesPopup(sitplanElement: Situati
             globalThis.structure.sitplan.defaults.scale = Number(scaleInput.value)/100;
         }
         closePopup(); // We close the popup first to avoid that an error somewhere leaves it open
-        callbackOK(returnId, selectAdresType.value, adresInput.value, selectAdresLocation.value, Number(fontSizeInput.value), Number(scaleInput.value)/100, Number(rotationInput.value));
+        callbackOK(returnId, selectAdresType.value, adresInput.value, selectAdresLocation.value, Number(fontSizeInput.value), Number(scaleInput.value)/100, Number(rotationInput.value), returnHeightCm);
     };
 
     cancelButton.onclick = () => {

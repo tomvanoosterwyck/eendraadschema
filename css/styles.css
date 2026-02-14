@@ -5,7 +5,7 @@
   --paperPadding: 10px;
 
   --menu-height: 40px; 
-  --ribbon-height: 68px; 
+  --ribbon-height: 92px; 
   --status-bar-height: 0px; 
 
   --sideBarWidth: 260px; /* Can be overwritte in propstyles */
@@ -456,6 +456,23 @@ body.distance-line-mode .boxlabel {
   cursor: crosshair !important;
 }
 
+/* Sitplan cable-run drawing mode: keep crosshair cursor everywhere */
+body.cable-run-mode #canvas,
+body.cable-run-mode #paper,
+body.cable-run-mode .box,
+body.cable-run-mode .boxlabel {
+  cursor: crosshair !important;
+}
+
+/* Cable-run preview element should not intercept input */
+.cable-run-preview {
+  pointer-events: none;
+}
+
+.cable-run-preview .svg-icon.cable-run-svg {
+  pointer-events: none !important;
+}
+
 /* APP */
 
 #app {
@@ -677,6 +694,32 @@ body.distance-line-mode .boxlabel {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.sitplan-sidebar-cable-summary {
+  margin: 8px 0 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--popup-bg);
+  color: var(--text);
+}
+
+.sitplan-sidebar-cable-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.sitplan-sidebar-cable-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
 }
 
 .sitplan-sidebar-item {
@@ -1101,6 +1144,19 @@ table {
   top: 50%;
   transform: translate(-50%, -50%);
   pointer-events: none; /* Allow clicks to pass through the SVG */
+}
+
+/* Cable runs need interactive vertices for editing (drag/insert/remove). */
+.svg-icon.cable-run-svg {
+  pointer-events: auto;
+}
+
+.svg-icon.cable-run-svg .cable-run-vertex {
+  cursor: grab;
+}
+
+.svg-icon.cable-run-svg .cable-run-vertex:active {
+  cursor: grabbing;
 }
 
 .context-menu {

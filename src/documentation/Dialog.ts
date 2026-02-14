@@ -41,9 +41,9 @@ export class Dialog {
             buttonElement.textContent = button.text;
             buttonElement.classList.add('rounded-button');
             buttonElement.addEventListener('click', (() => {
+                button.callback();
                 document.body.removeChild(popupOverlay);
                 document.body.style.pointerEvents = 'auto';
-                button.callback();
             }).bind(this))
             buttonContainer.appendChild(buttonElement);
         }

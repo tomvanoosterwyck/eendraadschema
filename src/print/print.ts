@@ -1,6 +1,7 @@
 import { download_by_blob } from "../importExport/importExport";
 import { SVGelement } from "../SVGelement";
 import { flattenSVGfromString } from "../general";
+import { computeBomPrintData } from "../bom/materials";
 import { printPDF } from './printToJsPDF';
 
 globalThis.HLDisplayPage = () => {
@@ -74,6 +75,9 @@ export function printsvg() {
             ? globalThis.structure.sitplan.toSitPlanPrint()
             : { numpages: 0, pages: [] };
 
+        const includeBom = (document.getElementById('print_include_bom') as HTMLInputElement | null)?.checked ?? true;
+        const bom = includeBom ? computeBomPrintData(globalThis.structure) : undefined;
+
         // If autopage, overwrite the input fields
         if (globalThis.structure.print_table.enableAutopage) {
             const info = globalThis.structure.properties.info;
@@ -91,7 +95,8 @@ export function printsvg() {
             pagerange,
             (document.getElementById("dopdfname") as HTMLInputElement).value, //filename
             document.getElementById("progress_pdf"), //HTML element where callback status can be given
-            sitplanprint
+            sitplanprint,
+            bom
         );
     }
 
@@ -134,6 +139,9 @@ export function printsvg() {
             +   '<span id="select_dpi"></span>&nbsp;'
             +   '<input id="dopdfname" size="20" value="eendraadschema_print.pdf">&nbsp;'
             +   '<span id="progress_pdf"></span>' // Area where status of pdf generation can be displayed
+            + '</div>'
+            + '<div style="margin-top: 4px">'
+            +   '<label><input type="checkbox" id="print_include_bom" checked> BOM toevoegen</label>'
             + '</div>'
             + '<div id="select_page_range"></div>';
 
