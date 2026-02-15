@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/tomvanoosterwyck/eendraadschema/compare/v1.0.5...v1.1.0) (2026-02-15)
+
+
+### Features
+
+* added fullscreen option to the eendraadschema ([3ebc781](https://github.com/tomvanoosterwyck/eendraadschema/commit/3ebc781dcf33de25fb17bf849d56c29b1d056a16))
+
 ## [1.0.5](https://github.com/tomvanoosterwyck/eendraadschema/compare/v1.0.4...v1.0.5) (2026-02-15)
 
 
