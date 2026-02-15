@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/tomvanoosterwyck/eendraadschema/compare/v1.0.0...v1.0.1) (2026-02-15)
+
+
+### Bug Fixes
+
+* fixed chart ([3aa63ad](https://github.com/tomvanoosterwyck/eendraadschema/commit/3aa63ad618c54a9f0a0e54b795df2476dfed6a94))
+
 ## 1.0.0 (2026-02-03)
 
 
