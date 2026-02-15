@@ -105,6 +105,8 @@ secrets:
   # Keys inside the secret (both for created and existing).
   passwordKey: EDS_SHARE_PASSWORD
   dbDsnKey: EDS_SHARE_DB_DSN
+  dbUserKey: EDS_SHARE_DB_USER
+  dbPasswordKey: EDS_SHARE_DB_PASSWORD
 
   # If you leave these empty, the env vars are not set and the app defaults apply.
   password: "" # EDS_SHARE_PASSWORD

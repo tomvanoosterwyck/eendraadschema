@@ -68,6 +68,20 @@ spec:
                   name: {{ $secretName }}
                   key: {{ .Values.secrets.dbDsnKey | quote }}
             {{- end }}
+            {{- if or .Values.secrets.existingSecret .Values.secrets.dbDsn }}
+            - name: EDS_SHARE_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: {{ .Values.secrets.dbUserKey | quote }}
+            {{- end }}
+            {{- if or .Values.secrets.existingSecret .Values.secrets.dbDsn }}
+            - name: EDS_SHARE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: {{ .Values.secrets.dbPasswordKey | quote }}
+            {{- end }}
             {{- with .Values.env }}
             {{ toYaml . | nindent 12 }}
             {{- end }}
