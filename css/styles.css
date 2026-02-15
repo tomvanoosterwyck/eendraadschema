@@ -766,6 +766,20 @@ body.cable-run-mode .boxlabel {
   flex-direction: row; /* Ensure columns are side by side */
 }
 
+/* Fullscreen the situation plan canvas without leaving a sidebar offset */
+#canvas:fullscreen {
+  left: 0;
+  background-color: var(--canvas-bg);
+  color: var(--text);
+}
+
+/* Safari */
+#canvas:-webkit-full-screen {
+  left: 0;
+  background-color: var(--canvas-bg);
+  color: var(--text);
+}
+
 #paper {
   top: var(--paperPadding);
   left: var(--paperPadding);

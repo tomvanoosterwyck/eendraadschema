@@ -2614,6 +2614,23 @@ export class SituationPlanView {
     updateRibbon() {
         if (globalThis.structure.properties.currentView != "draw") return;
 
+        async function toggleSitplanFullscreen(): Promise<void> {
+            const canvas = document.getElementById('canvas') as HTMLElement | null;
+            if (canvas == null) return;
+            try {
+                if (document.fullscreenElement != null) {
+                    await document.exitFullscreen();
+                } else {
+                    const elAny: any = canvas as any;
+                    if (typeof elAny.requestFullscreen === 'function') {
+                        await elAny.requestFullscreen({ navigationUI: 'hide' });
+                    }
+                }
+            } catch (e) {
+                console.warn('Fullscreen toggle failed', e);
+            }
+        }
+
         let outputleft: string = "";
         let outputright: string = "";
 
@@ -2755,11 +2772,20 @@ export class SituationPlanView {
                 <!--<img src="gif/scaleup.png" alt="Schermvullend" class="icon-image">-->
                 <span class="icon-text">Schermvullend</span>
             </div>
+            <div class="icon" id="button_sitplan_fullscreen" title="Fullscreen">
+                <span class="icon-image" style="font-size: 24px;">⛶︎</span>
+                <span class="icon-text">Fullscreen</span>
+            </div>
             <span style="display: inline-block; width: 10px;"></span>`;
 
         // -- Put everything in the ribbon --
 
         document.getElementById("ribbon").innerHTML = `<div id="left-icons">${outputleft}</div><div id="right-icons">${outputright}</div>`;
+
+        const fsBtn = document.getElementById('button_sitplan_fullscreen');
+        if (fsBtn != null) {
+            fsBtn.onclick = () => { void toggleSitplanFullscreen(); };
+        }
 
         // -- Actions om pagina te selecteren --
 
