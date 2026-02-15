@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/tomvanoosterwyck/eendraadschema/compare/v1.0.2...v1.0.3) (2026-02-15)
+
+
+### Bug Fixes
+
+* oidc configuration ([36d8183](https://github.com/tomvanoosterwyck/eendraadschema/commit/36d8183de347d69d62b3a9c89f6ebd6fe22005e4))
+
 ## [1.0.2](https://github.com/tomvanoosterwyck/eendraadschema/compare/v1.0.1...v1.0.2) (2026-02-15)
 
 
