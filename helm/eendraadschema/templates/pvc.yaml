@@ -3,6 +3,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ include "eendraadschema.fullname" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{ include "eendraadschema.labels" . | nindent 4 }}
 spec:
