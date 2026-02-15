@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.5](https://github.com/tomvanoosterwyck/eendraadschema/compare/v1.0.4...v1.0.5) (2026-02-15)
+
+
+### Bug Fixes
+
+* added ability to hide/show the tree view ([c4fb31f](https://github.com/tomvanoosterwyck/eendraadschema/commit/c4fb31f358a10c3d9cdda04d111ba9d8849bdb28))
+
 ## [1.0.4](https://github.com/tomvanoosterwyck/eendraadschema/compare/v1.0.3...v1.0.4) (2026-02-15)
 
 
