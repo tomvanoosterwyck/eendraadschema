@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.4](https://github.com/tomvanoosterwyck/eendraadschema/compare/v1.0.3...v1.0.4) (2026-02-15)
+
+
+### Bug Fixes
+
+* adding naming to database ([72bca55](https://github.com/tomvanoosterwyck/eendraadschema/commit/72bca55cb02907c2a66524ff9a79529a1b751bf4))
+
 ## [1.0.3](https://github.com/tomvanoosterwyck/eendraadschema/compare/v1.0.2...v1.0.3) (2026-02-15)
 
 
