@@ -3,6 +3,7 @@ import { EDStoStructure } from "../importExport/importExport";
 
 type ShareItem = {
     id: string;
+    name?: string | null;
     updatedAt: string;
     createdAt?: string;
     teamId?: string | null;
@@ -558,7 +559,8 @@ async function refreshShares(token: string): Promise<void> {
 
         const tdName = document.createElement("td");
         const nameSpan = document.createElement("span");
-        nameSpan.textContent = getLocalShareName(s.id) || "-";
+        const serverName = String(s.name || "").trim();
+        nameSpan.textContent = serverName || getLocalShareName(s.id) || "-";
         tdName.appendChild(nameSpan);
 
         const tdUpd = document.createElement("td");
@@ -571,11 +573,26 @@ async function refreshShares(token: string): Promise<void> {
         btnName.style.fontSize = "14px";
         btnName.textContent = "Naam";
         btnName.addEventListener("click", async () => {
-            const current = getLocalShareName(s.id);
+            const current = String(s.name || "").trim() || getLocalShareName(s.id);
             const next = prompt("Geef een naam voor deze share (leeg = wissen):", current);
             if (next === null) return;
-            setLocalShareName(s.id, next);
-            nameSpan.textContent = getLocalShareName(s.id) || "-";
+
+            const trimmed = String(next || "").trim();
+            try {
+                btnName.disabled = true;
+                await fetchJSON<any>(`/api/shares/${encodeURIComponent(s.id)}`, token, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ name: trimmed })
+                });
+                s.name = trimmed;
+                if (!trimmed) setLocalShareName(s.id, "");
+                nameSpan.textContent = trimmed || getLocalShareName(s.id) || "-";
+            } catch (e: any) {
+                alert(`Kon naam niet opslaan: ${String(e?.message || e)}`);
+            } finally {
+                btnName.disabled = false;
+            }
         });
 
         const btnVersions = document.createElement("button");

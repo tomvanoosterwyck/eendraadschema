@@ -331,6 +331,8 @@ async function saveToShareDb(createNew: boolean): Promise<void> {
     const baseUrl = window.location.href.split('#')[0];
     const { schemaText, origJson } = buildShareSchemaText();
 
+    const currentName = String(globalThis.structure?.properties?.filename || "").trim();
+
     let shareId: string | null = createNew ? null : (globalThis.currentShareId || null);
     if (!shareId) createNew = true;
 
@@ -343,7 +345,7 @@ async function saveToShareDb(createNew: boolean): Promise<void> {
                     'Authorization': 'Bearer ' + accessToken
                 },
                 credentials: 'include',
-                body: JSON.stringify({ schema: schemaText, baseUrl })
+                body: JSON.stringify({ schema: schemaText, baseUrl, name: currentName || undefined })
             });
             if (!resp.ok) {
                 alert(`Kon niet opslaan in cloud: ${resp.status} ${await resp.text()}`);
@@ -368,7 +370,7 @@ async function saveToShareDb(createNew: boolean): Promise<void> {
                 'Authorization': 'Bearer ' + accessToken
             },
             credentials: 'include',
-            body: JSON.stringify({ schema: schemaText })
+            body: JSON.stringify({ schema: schemaText, ...(currentName ? { name: currentName } : {}) })
         });
         if (!resp.ok) {
             alert(`Kon niet opslaan in cloud: ${resp.status} ${await resp.text()}`);
@@ -461,6 +463,7 @@ globalThis.copyShareLink = async () => {
 
     const baseUrl = window.location.href.split('#')[0];
     const schemaText = buildShareSchemaText();
+    const currentName = String(globalThis.structure?.properties?.filename || "").trim();
 
     const oidcEnabled = oidcAuth.isEnabled();
     let password: string | null = null;
@@ -491,7 +494,7 @@ globalThis.copyShareLink = async () => {
                 ...(accessToken ? { 'Authorization': 'Bearer ' + accessToken } : {})
             },
             credentials: 'include',
-            body: JSON.stringify({ schema: schemaText, password: password || undefined, baseUrl })
+            body: JSON.stringify({ schema: schemaText, name: currentName || undefined, password: password || undefined, baseUrl })
         });
 
         if (!resp.ok) {

@@ -101,6 +101,7 @@ func (a *API) requireAuth(w http.ResponseWriter, r *http.Request, now time.Time,
 }
 
 type createShareRequest struct {
+	Name     string `json:"name"`
 	Schema   string `json:"schema"`
 	Password string `json:"password"`
 	BaseURL  string `json:"baseUrl"`
@@ -114,11 +115,13 @@ type createShareResponse struct {
 
 type updateShareRequest struct {
 	Schema   string `json:"schema"`
+	Name     *string `json:"name"`
 	Password string `json:"password"`
 }
 
 type getShareResponse struct {
 	ID        string `json:"id"`
+	Name      string `json:"name,omitempty"`
 	Schema    string `json:"schema"`
 	UpdatedAt string `json:"updatedAt"`
 }
@@ -253,6 +256,7 @@ func (a *API) handleShares(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := uuid.NewString()
+	name := strings.TrimSpace(req.Name)
 	var teamID *string
 	if strings.TrimSpace(req.TeamID) != "" {
 		tid := strings.TrimSpace(req.TeamID)
@@ -270,7 +274,7 @@ func (a *API) handleShares(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := a.store.CreateShare(r.Context(), id, req.Schema, ownerSub, teamID, now); err != nil {
+	if err := a.store.CreateShare(r.Context(), id, name, req.Schema, ownerSub, teamID, now); err != nil {
 		writeError(w, http.StatusInternalServerError, "db_insert_failed", "could not store share")
 		return
 	}
@@ -512,7 +516,7 @@ func (a *API) handleGetShare(w http.ResponseWriter, r *http.Request, id string) 
 		return
 	}
 	// Public endpoint: anyone with the UUID can fetch the schema.
-	writeJSON(w, http.StatusOK, getShareResponse{ID: sh.ID, Schema: sh.Schema, UpdatedAt: sh.UpdatedAt.Format(time.RFC3339)})
+	writeJSON(w, http.StatusOK, getShareResponse{ID: sh.ID, Name: strings.TrimSpace(sh.Name), Schema: sh.Schema, UpdatedAt: sh.UpdatedAt.Format(time.RFC3339)})
 }
 
 func (a *API) handleUpdateShare(w http.ResponseWriter, r *http.Request, id string) {
@@ -524,12 +528,17 @@ func (a *API) handleUpdateShare(w http.ResponseWriter, r *http.Request, id strin
 		writeError(w, http.StatusBadRequest, "bad_json", "invalid json")
 		return
 	}
-	if req.Schema == "" {
-		writeError(w, http.StatusBadRequest, "missing_schema", "schema is required")
-		return
+	var schemaPtr *string
+	if req.Schema != "" {
+		if !strings.HasPrefix(req.Schema, "EDS") && !strings.HasPrefix(req.Schema, "TXT") {
+			writeError(w, http.StatusBadRequest, "invalid_schema", "schema must start with EDS... or TXT...")
+			return
+		}
+		s := req.Schema
+		schemaPtr = &s
 	}
-	if !strings.HasPrefix(req.Schema, "EDS") && !strings.HasPrefix(req.Schema, "TXT") {
-		writeError(w, http.StatusBadRequest, "invalid_schema", "schema must start with EDS... or TXT...")
+	if schemaPtr == nil && req.Name == nil {
+		writeError(w, http.StatusBadRequest, "missing_update", "schema or name is required")
 		return
 	}
 
@@ -571,7 +580,7 @@ func (a *API) handleUpdateShare(w http.ResponseWriter, r *http.Request, id strin
 		}
 	}
 
-	if err := a.store.UpdateShare(r.Context(), id, req.Schema, now); err != nil {
+	if err := a.store.UpdateShareFields(r.Context(), id, schemaPtr, req.Name, now); err != nil {
 		if err == store.ErrNotFound {
 			writeError(w, http.StatusNotFound, "not_found", "share not found")
 			return
@@ -587,7 +596,9 @@ func (a *API) handleUpdateShare(w http.ResponseWriter, r *http.Request, id strin
 			actorSub = u.Sub
 		}
 	}
-	_ = a.store.AddShareVersion(r.Context(), uuid.NewString(), id, req.Schema, actorSub, now)
+	if schemaPtr != nil {
+		_ = a.store.AddShareVersion(r.Context(), uuid.NewString(), id, *schemaPtr, actorSub, now)
+	}
 	if a.cfg.ShareVersionsMax > 0 {
 		_ = a.store.PruneShareVersions(r.Context(), id, a.cfg.ShareVersionsMax)
 	}
@@ -724,6 +735,7 @@ func (a *API) handleAdminShares(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, map[string]any{
 			"id":        it.ID,
+			"name":      strings.TrimSpace(it.Name),
 			"ownerSub":  it.OwnerSub,
 			"ownerName": ownerName,
 			"ownerEmail": ownerEmail,
@@ -760,7 +772,7 @@ func (a *API) handleAdminShareByID(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db_read_failed", "could not read share")
 		return
 	}
-	writeJSON(w, http.StatusOK, getShareResponse{ID: sh.ID, Schema: sh.Schema, UpdatedAt: sh.UpdatedAt.UTC().Format(time.RFC3339)})
+	writeJSON(w, http.StatusOK, getShareResponse{ID: sh.ID, Name: strings.TrimSpace(sh.Name), Schema: sh.Schema, UpdatedAt: sh.UpdatedAt.UTC().Format(time.RFC3339)})
 }
 
 func (a *API) handleMyShares(w http.ResponseWriter, r *http.Request) {
@@ -787,6 +799,7 @@ func (a *API) handleMyShares(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, map[string]any{
 			"id":        it.ID,
+			"name":      strings.TrimSpace(it.Name),
 			"teamId":    tid,
 			"createdAt": it.CreatedAt.UTC().Format(time.RFC3339),
 			"updatedAt": it.UpdatedAt.UTC().Format(time.RFC3339),

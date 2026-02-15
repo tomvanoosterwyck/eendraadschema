@@ -114,6 +114,7 @@ func (s *Store) UpsertOIDCUser(ctx context.Context, sub string, email string, na
 
 type ShareModel struct {
 	ID       string         `gorm:"column:id;primaryKey"`
+	Name     string         `gorm:"column:name"`
 	Schema   string         `gorm:"column:schema;not null"`
 	OwnerSub string         `gorm:"column:owner_sub;index"`
 	TeamID   sql.NullString `gorm:"column:team_id;index"`
@@ -193,6 +194,7 @@ func (s *Store) migrate(ctx context.Context) error {
 
 type Share struct {
 	ID        string
+	Name      string
 	Schema    string
 	OwnerSub  string
 	TeamID    sql.NullString
@@ -202,6 +204,7 @@ type Share struct {
 
 type ShareSummary struct {
 	ID        string
+	Name      string
 	TeamID    sql.NullString
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -209,6 +212,7 @@ type ShareSummary struct {
 
 type ShareAdminSummary struct {
 	ID        string
+	Name      string
 	OwnerSub  string
 	TeamID    sql.NullString
 	CreatedAt time.Time
@@ -355,9 +359,10 @@ func (s *Store) GetUsersBySubs(ctx context.Context, subs []string) (map[string]U
 	return out, nil
 }
 
-func (s *Store) CreateShare(ctx context.Context, id string, schema string, ownerSub string, teamID *string, now time.Time) error {
+func (s *Store) CreateShare(ctx context.Context, id string, name string, schema string, ownerSub string, teamID *string, now time.Time) error {
 	m := ShareModel{
 		ID:        id,
+		Name:      strings.TrimSpace(name),
 		Schema:    schema,
 		OwnerSub:  strings.TrimSpace(ownerSub),
 		CreatedAt: now.Unix(),
@@ -374,6 +379,31 @@ func (s *Store) UpdateShare(ctx context.Context, id string, schema string, now t
 		Model(&ShareModel{}).
 		Where("id = ?", id).
 		Updates(map[string]any{"schema": schema, "updated_at": now.Unix()})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) UpdateShareFields(ctx context.Context, id string, schema *string, name *string, now time.Time) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("id is required")
+	}
+	updates := map[string]any{"updated_at": now.Unix()}
+	if schema != nil {
+		updates["schema"] = *schema
+	}
+	if name != nil {
+		updates["name"] = strings.TrimSpace(*name)
+	}
+	res := s.db.WithContext(ctx).
+		Model(&ShareModel{}).
+		Where("id = ?", id).
+		Updates(updates)
 	if res.Error != nil {
 		return res.Error
 	}
@@ -417,6 +447,7 @@ func (s *Store) GetShare(ctx context.Context, id string) (Share, error) {
 	}
 	return Share{
 		ID:        m.ID,
+		Name:      m.Name,
 		Schema:    m.Schema,
 		OwnerSub:  m.OwnerSub,
 		TeamID:    m.TeamID,
@@ -519,7 +550,7 @@ func (s *Store) ListSharesByOwner(ctx context.Context, ownerSub string, limit in
 	}
 	var rows []ShareModel
 	if err := s.db.WithContext(ctx).
-		Select("id", "team_id", "created_at", "updated_at").
+		Select("id", "name", "team_id", "created_at", "updated_at").
 		Where("owner_sub = ?", strings.TrimSpace(ownerSub)).
 		Order("updated_at DESC").
 		Limit(limit).
@@ -528,7 +559,7 @@ func (s *Store) ListSharesByOwner(ctx context.Context, ownerSub string, limit in
 	}
 	out := make([]ShareSummary, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, ShareSummary{ID: r.ID, TeamID: r.TeamID, CreatedAt: time.Unix(r.CreatedAt, 0), UpdatedAt: time.Unix(r.UpdatedAt, 0)})
+		out = append(out, ShareSummary{ID: r.ID, Name: r.Name, TeamID: r.TeamID, CreatedAt: time.Unix(r.CreatedAt, 0), UpdatedAt: time.Unix(r.UpdatedAt, 0)})
 	}
 	return out, nil
 }
@@ -544,7 +575,7 @@ func (s *Store) ListAllShares(ctx context.Context, limit int) ([]ShareAdminSumma
 	var rows []ShareModel
 	if err := s.db.WithContext(ctx).
 		Model(&ShareModel{}).
-		Select("id", "owner_sub", "team_id", "created_at", "updated_at").
+		Select("id", "name", "owner_sub", "team_id", "created_at", "updated_at").
 		Order("updated_at desc").
 		Limit(limit).
 		Find(&rows).Error; err != nil {
@@ -554,6 +585,7 @@ func (s *Store) ListAllShares(ctx context.Context, limit int) ([]ShareAdminSumma
 	for _, r := range rows {
 		out = append(out, ShareAdminSummary{
 			ID:        r.ID,
+			Name:      r.Name,
 			OwnerSub:  r.OwnerSub,
 			TeamID:    r.TeamID,
 			CreatedAt: time.Unix(r.CreatedAt, 0),
