@@ -12,13 +12,15 @@ helm install eendraadschema ./helm/eendraadschema \
 
 ## External PostgreSQL (no DB Deployment in this chart)
 
-Set the driver to `postgres` and provide the DSN as a secret:
+Set the driver to `postgres` and provide the DSN via an externally-managed Secret.
+
+This chart will NOT create Secret manifests unless you explicitly set `secrets.create=true`.
 
 ```sh
 helm install eendraadschema ./helm/eendraadschema \
   --set image.repository=ghcr.io/<org>/<repo> \
   --set config.db.driver=postgres \
-  --set secrets.dbDsn='postgres://user:pass@host:5432/db?sslmode=require'
+  --set secrets.existingSecret=my-eds-secret
 ```
 
 Or reference an existing secret:
@@ -36,6 +38,30 @@ Your existing secret should contain keys:
 - `EDS_SHARE_PASSWORD` (optional)
 
 Key names can be overridden via `secrets.dbDsnKey` and `secrets.passwordKey`.
+
+### GitOps: inject credentials via envFrom/env
+
+If you prefer not to use `secrets.*` at all, inject environment variables directly:
+
+```yaml
+config:
+  db:
+    driver: postgres
+
+# DSN can omit username/password when you provide them separately.
+env:
+  - name: EDS_SHARE_DB_DSN
+    value: postgres://host:5432/db?sslmode=require
+
+envFrom:
+  - secretRef:
+      name: my-eds-secret
+```
+
+Where `my-eds-secret` contains either:
+
+- `EDS_SHARE_DB_DSN` (and optionally `EDS_SHARE_PASSWORD`), OR
+- `EDS_SHARE_DB_USER` and `EDS_SHARE_DB_PASSWORD` (and optionally `EDS_SHARE_PASSWORD`) if you prefer not to embed credentials into the DSN.
 
 ## Environment variables
 

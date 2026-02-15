@@ -94,6 +94,11 @@ config:
     audience: "" # EDS_SHARE_OIDC_AUDIENCE (optional, comma-separated)
 
 secrets:
+  # By default this chart will not create any Secret manifests.
+  # For GitOps, prefer creating Secrets externally (ExternalSecrets/SealedSecrets/etc)
+  # and inject them via envFrom/env or set secrets.existingSecret.
+  create: false
+
   # If set, chart will NOT create a secret and will reference this existing one.
   existingSecret: ""
 
@@ -110,6 +115,12 @@ secrets:
 
 extraEnv: []
 extraEnvFrom: []
+
+# Additional environment variables to inject into the pod.
+# These map directly to Kubernetes Container `env` and `envFrom`.
+# (Preferred names; `extraEnv`/`extraEnvFrom` are still supported for compatibility.)
+env: []
+envFrom: []
 
 probes:
   liveness:

@@ -45,6 +45,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "eendraadschema.configMapName" . }}
+            {{- with .Values.envFrom }}
+            {{ toYaml . | nindent 12 }}
+            {{- end }}
             {{- with .Values.extraEnvFrom }}
             {{ toYaml . | nindent 12 }}
             {{- end }}
@@ -63,6 +66,9 @@ spec:
                 secretKeyRef:
                   name: {{ $secretName }}
                   key: {{ .Values.secrets.dbDsnKey | quote }}
+            {{- end }}
+            {{- with .Values.env }}
+            {{ toYaml . | nindent 12 }}
             {{- end }}
             {{- with .Values.extraEnv }}
             {{ toYaml . | nindent 12 }}

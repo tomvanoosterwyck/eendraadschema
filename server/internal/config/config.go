@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -72,7 +73,48 @@ func Load() Config {
 		ShareVersionsMax: envInt("EDS_SHARE_SHARE_VERSIONS_MAX", 50),
 		AdminSubs:        envStringList("EDS_SHARE_ADMIN_SUBS"),
 	}
+
+	// Optional: allow providing Postgres credentials separately, so GitOps setups can
+	// inject them via Secret env vars without embedding them in the DSN value.
+	//
+	// This only applies to URL-style DSNs (postgres:// or postgresql://).
+	// If parsing fails, we leave the DSN unchanged.
+	pgUser := strings.TrimSpace(os.Getenv("EDS_SHARE_DB_USER"))
+	pgPass := os.Getenv("EDS_SHARE_DB_PASSWORD")
+	if strings.TrimSpace(cfg.PostgresDSN) != "" && (pgUser != "" || pgPass != "") {
+		cfg.PostgresDSN = injectPostgresCredentials(cfg.PostgresDSN, pgUser, pgPass)
+	}
+
 	return cfg
+}
+
+func injectPostgresCredentials(dsn string, user string, pass string) string {
+	u, err := url.Parse(strings.TrimSpace(dsn))
+	if err != nil {
+		return dsn
+	}
+	if u.Scheme != "postgres" && u.Scheme != "postgresql" {
+		return dsn
+	}
+
+	// Keep any existing username if none provided.
+	if user == "" {
+		if u.User != nil {
+			user = u.User.Username()
+		}
+	}
+
+	// If we still don't have a username, we can't apply a password.
+	if user == "" {
+		return dsn
+	}
+
+	if pass == "" {
+		u.User = url.User(user)
+	} else {
+		u.User = url.UserPassword(user, pass)
+	}
+	return u.String()
 }
 
 func envStringList(key string) []string {
