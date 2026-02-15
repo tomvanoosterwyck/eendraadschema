@@ -915,6 +915,8 @@ export class Hierarchical_List {
 
         // Compact tree + modal editing toggle
         const modalChecked = (globalThis as any).treeEditInModal === true ? 'checked' : '';
+		const treeHidden = (globalThis as any).treeViewHidden === true;
+		const treeToggleLabel = treeHidden ? 'Toon boom' : 'Verberg boom';
         output += `
             <span style="display: inline-block; width: 30px;"></span>
             <div>
@@ -926,6 +928,10 @@ export class Hierarchical_List {
                     </label>
                 </div>
             </div>
+			<div class="icon" onclick="HL_toggleTreeView()" title="${treeToggleLabel}">
+				<div class="icon-image" style="font-size:24px;">🌳</div>
+				<span class="icon-text">${treeToggleLabel}</span>
+			</div>
         `;
         output += '</p>';
 

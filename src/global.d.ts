@@ -46,6 +46,7 @@ declare global {
         HL_changeFilename: () => void;
         HL_enterSettings: () => void;
         HLRedrawTreeHTMLLight: () => void;
+		HL_toggleTreeView: () => void;
         changeAddressParams: () => void;
         toggleAppView: (type: '2col' | 'config' | 'draw') => void;
         load_example: (nr: number) => void;
@@ -64,6 +65,8 @@ declare global {
 
         saveSchema: () => Promise<void>;
         saveSchemaAs: () => Promise<void>;
+
+		treeEditInModal: boolean;
 
         authLogin: () => Promise<void>;
         authLogout: () => Promise<void>;

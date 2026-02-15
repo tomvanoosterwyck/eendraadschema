@@ -61,6 +61,25 @@ globalThis.currentShareId = null;
 // When enabled, the hierarchical tree becomes compact and item editing happens in a modal.
 globalThis.treeEditInModal = true;
 
+// When true, hide the left tree column and let the drawing column take the full width.
+(globalThis as any).treeViewHidden = false;
+
+function applyTreeViewVisibility(): void {
+    const leftCol = document.getElementById('left_col') as HTMLElement | null;
+    const rightCol = document.getElementById('right_col') as HTMLElement | null;
+    if (!leftCol || !rightCol) return;
+
+    const hidden = (globalThis as any).treeViewHidden === true;
+    if (hidden) {
+        leftCol.style.display = 'none';
+        rightCol.style.flex = '1';
+    } else {
+        leftCol.style.display = 'block';
+        leftCol.style.flex = '0.35';
+        rightCol.style.flex = '0.65';
+    }
+}
+
 // Global constants
 
 globalThis.SITPLANVIEW_SELECT_PADDING = parseInt(trimString(getComputedStyle(document.documentElement).getPropertyValue('--selectPadding')));
@@ -711,6 +730,16 @@ globalThis.HL_toggleTreeEditModal = () => {
     globalThis.treeEditInModal = el?.checked === true;
     closeTreeItemModal();
     globalThis.HLRedrawTreeHTML();
+}
+
+globalThis.HL_toggleTreeView = () => {
+    (globalThis as any).treeViewHidden = !((globalThis as any).treeViewHidden === true);
+    applyTreeViewVisibility();
+    try {
+        globalThis.structure?.updateRibbon?.();
+    } catch {
+        // ignore
+    }
 }
 
 globalThis.HLExpand = (my_id: number ) => {
@@ -1715,6 +1744,8 @@ globalThis.toggleAppView = (type: '2col' | 'config' | 'draw') => {
             configsection.innerHTML = '';
             
             globalThis.structure.updateRibbon();
+
+			applyTreeViewVisibility();
         }
 
     } else if (type === 'config') {
