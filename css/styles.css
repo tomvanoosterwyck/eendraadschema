@@ -785,6 +785,19 @@ body.cable-run-mode .boxlabel {
 #right_col {
   flex: 0.65;
   overflow: auto;
+  background-color: var(--canvas-bg);
+}
+
+/* When the drawing column is fullscreen, keep theme colors instead of the browser's default black fullscreen backdrop */
+#right_col:fullscreen {
+  background-color: var(--canvas-bg);
+  color: var(--text);
+}
+
+/* Safari */
+#right_col:-webkit-full-screen {
+  background-color: var(--canvas-bg);
+  color: var(--text);
 }
 
 #left_col_inner {padding:10px; color: var(--text)}

@@ -968,7 +968,25 @@ function setupTreeDragAndDrop(leftColInner: HTMLElement) {
 }
 
 globalThis.HLRedrawTreeSVG = () => {
+    async function toggleEdsDrawingFullscreen(): Promise<void> {
+        const rightCol = document.getElementById('right_col') as HTMLElement | null;
+        if (rightCol == null) return;
+        try {
+            if (document.fullscreenElement != null) {
+                await document.exitFullscreen();
+            } else {
+                const elAny: any = rightCol as any;
+                if (typeof elAny.requestFullscreen === 'function') {
+                    await elAny.requestFullscreen({ navigationUI: 'hide' });
+                }
+            }
+        } catch (e) {
+            console.warn('Fullscreen toggle failed', e);
+        }
+    }
+
     let str:string = '<div class="eds-drawing-header"><b>Tekening: </b>Ga naar het print-menu om de tekening af te printen of te exporteren als SVG vector graphics.'
+                   + '<button type="button" id="edsFullscreenButton" class="eds-keybinds-help-button" title="Fullscreen">⛶︎</button>'
                    + '<button type="button" id="edsKeybindsHelpButton" class="eds-keybinds-help-button" title="Keybinds">?</button>'
                    + '</div><br>'
                    + '<div id="EDS">' + flattenSVGfromString(globalThis.structure.toSVG(0,"horizontal").data,10) + '</div>'
@@ -988,6 +1006,12 @@ globalThis.HLRedrawTreeSVG = () => {
         right_col_inner.addEventListener('click', (ev: MouseEvent) => {
             const t = ev.target as HTMLElement | null;
             if (t == null) return;
+            if (t.closest('#edsFullscreenButton') != null) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                void toggleEdsDrawingFullscreen();
+                return;
+            }
             if (t.closest('#edsKeybindsHelpButton') != null) {
                 ev.preventDefault();
                 ev.stopPropagation();
