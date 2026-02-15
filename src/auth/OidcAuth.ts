@@ -13,11 +13,24 @@ type OidcEnv = {
     scope: string;
 };
 
+type RuntimeConfig = Record<string, unknown>;
+
+function readRuntimeConfig(key: string): string {
+    const cfg = (globalThis as any).__EDS_RUNTIME_CONFIG as RuntimeConfig | undefined;
+    if (!cfg || typeof cfg !== "object") return "";
+    const v = (cfg as any)[key];
+    if (v === undefined || v === null) return "";
+    return String(v);
+}
+
 function getOidcEnv(): OidcEnv | null {
-    const issuerUrl = (import.meta as any).env?.VITE_OIDC_ISSUER_URL || "";
-    const clientId = (import.meta as any).env?.VITE_OIDC_CLIENT_ID || "";
-    const audience = (import.meta as any).env?.VITE_OIDC_AUDIENCE || "";
-    const scope = (import.meta as any).env?.VITE_OIDC_SCOPE || "openid profile email";
+    const issuerUrl =
+        readRuntimeConfig("VITE_OIDC_ISSUER_URL") || (import.meta as any).env?.VITE_OIDC_ISSUER_URL || "";
+    const clientId =
+        readRuntimeConfig("VITE_OIDC_CLIENT_ID") || (import.meta as any).env?.VITE_OIDC_CLIENT_ID || "";
+    const audience =
+        readRuntimeConfig("VITE_OIDC_AUDIENCE") || (import.meta as any).env?.VITE_OIDC_AUDIENCE || "";
+    const scope = readRuntimeConfig("VITE_OIDC_SCOPE") || (import.meta as any).env?.VITE_OIDC_SCOPE || "openid profile email";
 
     if (!issuerUrl || !clientId) return null;
     return {

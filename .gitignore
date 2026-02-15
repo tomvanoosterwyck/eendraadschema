@@ -11,6 +11,7 @@ node_modules/
 .yarn/install-state.gz
 
 # Build / output
+dist/
 build/
 out/
 lib/

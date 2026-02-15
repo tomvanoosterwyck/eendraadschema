@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
-	"net/url"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 
 func main() {
 	cfg := config.Load()
+	logAppEnvironment("EDS_SHARE_")
 
 	if strings.EqualFold(cfg.DBDriver, "sqlite") || strings.TrimSpace(cfg.DBDriver) == "" {
 		if dir := filepath.Dir(cfg.DBPath); dir != "" && dir != "." {
@@ -46,6 +49,29 @@ func main() {
 	root := http.NewServeMux()
 	root.Handle("/api/", apiHandler)
 	root.Handle("/api", apiHandler)
+	root.HandleFunc("/runtime-config.js", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+
+		// Only include non-secret configuration intended for the browser.
+		// We intentionally do NOT expose any passwords, DSNs, tokens, etc.
+		publicCfg := map[string]string{
+			"VITE_OIDC_ISSUER_URL": cfg.OIDCIssuerURL,
+			"VITE_OIDC_CLIENT_ID":  cfg.OIDCClientID,
+			"VITE_OIDC_AUDIENCE":   cfg.OIDCAudience,
+		}
+		b, err := json.Marshal(publicCfg)
+		if err != nil {
+			http.Error(w, "failed to render config", http.StatusInternalServerError)
+			return
+		}
+		_, _ = fmt.Fprintf(w, "window.__EDS_RUNTIME_CONFIG=%s;\n", string(b))
+	})
 	if staticHandler != nil {
 		root.Handle("/", staticHandler)
 	} else {
@@ -64,11 +90,6 @@ func main() {
 	}
 
 	log.Printf("share server listening on %s (dbDriver=%s)", cfg.Addr, cfg.DBDriver)
-	if driver := strings.ToLower(strings.TrimSpace(cfg.DBDriver)); driver == "postgres" || driver == "postgresql" || driver == "pg" {
-		pgUser := strings.TrimSpace(os.Getenv("EDS_SHARE_DB_USER"))
-		log.Printf("EDS_SHARE_DB_USER=%q", pgUser)
-		log.Printf("EDS_SHARE_DB_DSN=%q", sanitizePostgresDSN(cfg.PostgresDSN))
-	}
 	if strings.TrimSpace(cfg.StaticDir) != "" {
 		log.Printf("serving static from %s", cfg.StaticDir)
 	}
@@ -79,30 +100,66 @@ func main() {
 	}
 }
 
-func sanitizePostgresDSN(dsn string) string {
-	dsn = strings.TrimSpace(dsn)
-	if dsn == "" {
-		return ""
+func logAppEnvironment(prefix string) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return
 	}
-	if u, err := url.Parse(dsn); err == nil {
-		if u.Scheme == "postgres" || u.Scheme == "postgresql" {
-			if u.User != nil {
-				u.User = url.User(u.User.Username())
-			}
-			return u.String()
+	all := os.Environ()
+	vals := make(map[string]string)
+	for _, kv := range all {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		if strings.HasPrefix(k, prefix) {
+			vals[k] = v
+		}
+	}
+	if len(vals) == 0 {
+		log.Printf("%s* env: (none set)", prefix)
+		return
+	}
+
+	keys := make([]string, 0, len(vals))
+	for k := range vals {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	log.Printf("%s* env:", prefix)
+	for _, k := range keys {
+		log.Printf("  %s=%q", k, maskEnvValue(k, vals[k]))
+	}
+}
+
+func maskEnvValue(key string, value string) string {
+	upper := strings.ToUpper(strings.TrimSpace(key))
+
+	// Conservative masking: prefer hiding too much over leaking secrets.
+	// This function is used for startup logs.
+	if upper == "EDS_SHARE_PASSWORD" ||
+		upper == "EDS_SHARE_DB_PASSWORD" ||
+		upper == "EDS_SHARE_DB_DSN" {
+		return "****"
+	}
+
+	secretHints := []string{
+		"PASSWORD",
+		"PASSWD",
+		"SECRET",
+		"TOKEN",
+		"API_KEY",
+		"PRIVATE",
+		"CERT",
+		"DSN",
+		"KEY",
+	}
+	for _, h := range secretHints {
+		if strings.Contains(upper, h) {
+			return "****"
 		}
 	}
 
-	// Best-effort scrubbing for keyword/value DSN style.
-	// Example: "host=... user=... password=... dbname=..."
-	lower := strings.ToLower(dsn)
-	idx := strings.Index(lower, "password=")
-	if idx == -1 {
-		return dsn
-	}
-	end := idx + len("password=")
-	for end < len(dsn) && dsn[end] != ' ' && dsn[end] != '\t' {
-		end++
-	}
-	return dsn[:idx] + "password=***" + dsn[end:]
+	return value
 }
