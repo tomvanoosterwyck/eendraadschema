@@ -18,3 +18,9 @@ data:
   EDS_SHARE_OIDC_ISSUER_URL: {{ .Values.config.oidc.issuerUrl | quote }}
   EDS_SHARE_OIDC_CLIENT_ID: {{ .Values.config.oidc.clientId | quote }}
   EDS_SHARE_OIDC_AUDIENCE: {{ .Values.config.oidc.audience | quote }}
+
+  # Frontend runtime configuration (non-secret)
+  VITE_OIDC_SCOPE: {{ .Values.config.oidc.scope | quote }}
+  VITE_OIDC_SILENT_REDIRECT_URI: {{ .Values.config.oidc.silentRedirectUri | quote }}
+  VITE_OIDC_USE_REFRESH_TOKEN: {{ .Values.config.oidc.useRefreshToken | quote }}
+  VITE_OIDC_RENEW_SKEW_SECONDS: {{ .Values.config.oidc.renewSkewSeconds | quote }}

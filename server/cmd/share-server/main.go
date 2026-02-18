@@ -64,6 +64,10 @@ func main() {
 			"VITE_OIDC_ISSUER_URL": cfg.OIDCIssuerURL,
 			"VITE_OIDC_CLIENT_ID":  cfg.OIDCClientID,
 			"VITE_OIDC_AUDIENCE":   cfg.OIDCAudience,
+			"VITE_OIDC_SCOPE":              os.Getenv("VITE_OIDC_SCOPE"),
+			"VITE_OIDC_SILENT_REDIRECT_URI": os.Getenv("VITE_OIDC_SILENT_REDIRECT_URI"),
+			"VITE_OIDC_USE_REFRESH_TOKEN":   os.Getenv("VITE_OIDC_USE_REFRESH_TOKEN"),
+			"VITE_OIDC_RENEW_SKEW_SECONDS":  os.Getenv("VITE_OIDC_RENEW_SKEW_SECONDS"),
 		}
 		b, err := json.Marshal(publicCfg)
 		if err != nil {

@@ -81,6 +81,22 @@ Frontend (Vite) OIDC variables (optional):
 - `VITE_OIDC_AUDIENCE` (optional)
 - `VITE_OIDC_SCOPE` (optional; default `openid profile email`)
 
+Token renewal (optional, IdP-independent):
+
+By default the frontend will not be able to renew an expired token without a fresh login.
+To enable background renewal, configure *one* of the standard OIDC approaches below:
+
+- Refresh-token based renewal (recommended when your IdP supports it for SPAs):
+	- `VITE_OIDC_USE_REFRESH_TOKEN=true`
+	- Ensure your `VITE_OIDC_SCOPE` includes whatever your IdP requires to issue refresh tokens (often `offline_access`).
+
+- Silent-redirect (iframe) based renewal:
+	- `VITE_OIDC_SILENT_REDIRECT_URI` (a URL on this app origin that can complete the silent callback)
+
+Optional tuning:
+
+- `VITE_OIDC_RENEW_SKEW_SECONDS` (default `30`) renew this many seconds before expiry.
+
 Example PostgreSQL DSN:
 
 ```sh

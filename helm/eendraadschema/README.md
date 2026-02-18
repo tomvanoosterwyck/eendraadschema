@@ -70,6 +70,23 @@ All supported `EDS_SHARE_*` options are exposed under `values.yaml` in `config` 
 - Non-sensitive settings are in `config` and rendered into a ConfigMap.
 - Sensitive settings (`EDS_SHARE_PASSWORD`, `EDS_SHARE_DB_DSN`) are in `secrets` and rendered into a Secret (or referenced from `secrets.existingSecret`).
 
+### OIDC silent renew (frontend)
+
+The SPA reads non-secret OIDC settings from `/runtime-config.js`.
+To enable silent renewal, configure these chart values:
+
+```yaml
+config:
+  oidc:
+    # iframe-based renewal callback (same-origin)
+    silentRedirectUri: "https://app.example.com/?silent-renew=1"
+    renewSkewSeconds: 30
+
+    # or refresh-token based renewal (if supported by your IdP)
+    # useRefreshToken: true
+    # scope: "openid profile email offline_access"
+```
+
 ## SQLite persistence
 
 When using SQLite (`config.db.driver=sqlite`), keep `persistence.enabled=true` so `/app/data` is backed by a PVC.

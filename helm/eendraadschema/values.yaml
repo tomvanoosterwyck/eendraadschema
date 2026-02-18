@@ -93,6 +93,13 @@ config:
     clientId: "" # EDS_SHARE_OIDC_CLIENT_ID
     audience: "" # EDS_SHARE_OIDC_AUDIENCE (optional, comma-separated)
 
+    # Frontend OIDC knobs (non-secret). These are exposed to the browser via /runtime-config.js
+    # and enable token renewal behavior in the SPA.
+    scope: "" # VITE_OIDC_SCOPE (optional; default in app is "openid profile email")
+    silentRedirectUri: "" # VITE_OIDC_SILENT_REDIRECT_URI (e.g. https://app.example.com/?silent-renew=1)
+    useRefreshToken: false # VITE_OIDC_USE_REFRESH_TOKEN (optional)
+    renewSkewSeconds: 30 # VITE_OIDC_RENEW_SKEW_SECONDS (optional)
+
 secrets:
   # By default this chart will not create any Secret manifests.
   # For GitOps, prefer creating Secrets externally (ExternalSecrets/SealedSecrets/etc)
