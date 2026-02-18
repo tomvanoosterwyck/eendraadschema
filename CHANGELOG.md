@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/tomvanoosterwyck/eendraadschema/compare/v1.1.0...v1.1.1) (2026-02-18)
+
+
+### Bug Fixes
+
+* added silent renewal ([ab594fc](https://github.com/tomvanoosterwyck/eendraadschema/commit/ab594fc35a7108836a119519cfe291bb0acfc5d6))
+
 ## [1.1.0](https://github.com/tomvanoosterwyck/eendraadschema/compare/v1.0.5...v1.1.0) (2026-02-15)
 
 
