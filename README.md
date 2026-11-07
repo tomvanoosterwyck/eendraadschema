@@ -92,6 +92,7 @@ To enable background renewal, configure *one* of the standard OIDC approaches be
 
 - Silent-redirect (iframe) based renewal:
 	- `VITE_OIDC_SILENT_REDIRECT_URI` (a URL on this app origin that can complete the silent callback)
+	- Note: this requires your IdP to allow its authorize endpoint to be loaded in an iframe (no `X-Frame-Options: deny` and a compatible `Content-Security-Policy frame-ancestors`). If your IdP blocks framing, use refresh-token renewal instead.
 
 Optional tuning:
 

@@ -82,6 +82,9 @@ config:
     silentRedirectUri: "https://app.example.com/?silent-renew=1"
     renewSkewSeconds: 30
 
+    # NOTE: iframe-based silent renew requires the IdP to allow framing (no X-Frame-Options: deny).
+    # If your IdP blocks iframes, prefer refresh-token renewal below.
+
     # or refresh-token based renewal (if supported by your IdP)
     # useRefreshToken: true
     # scope: "openid profile email offline_access"
