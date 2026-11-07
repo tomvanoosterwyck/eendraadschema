@@ -49,7 +49,10 @@ export class Drukknop extends Electro_Item {
                +  ", Afgeschermd: " + this.checkboxPropToHTML('is_afgeschermd')
                +  ", Aantal armaturen: " + this.selectPropToHTML('aantal',["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20"])
                +  ", Aantal knoppen per armatuur: " + this.selectPropToHTML('aantal_knoppen_per_armatuur',["1","2","3","4","5","6","7","8"])
-               +  ", Adres/tekst: " + this.stringPropToHTML('adres',5);
+             +  ", Adres/tekst: " + this.stringPropToHTML('adres',5)
+             +  ` <button type="button" class="button-lightblue" title="Adres links" onclick="HL_setProp(${this.id},'adres_uitlijning','links')">L</button>`
+             +  ` <button type="button" class="button-lightblue" title="Adres centreer" onclick="HL_setProp(${this.id},'adres_uitlijning','centreer')">C</button>`
+             +  ` <button type="button" class="button-lightblue" title="Adres rechts" onclick="HL_setProp(${this.id},'adres_uitlijning','rechts')">R</button>`;
 
         return(output);
     }

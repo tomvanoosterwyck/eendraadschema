@@ -49,7 +49,10 @@ export class Vrije_tekst extends Electro_Item {
         
         output += ", Vet: " + this.checkboxPropToHTML('is_vet')
                +  ", Cursief: " + this.checkboxPropToHTML('is_cursief')
-               +  ", Horizontale alignering: " + this.selectPropToHTML('horizontale_uitlijning',["links","centreer","rechts"])
+             +  ", Horizontale alignering: " + this.selectPropToHTML('horizontale_uitlijning',["links","centreer","rechts"])
+             +  ` <button type="button" class="button-lightblue" title="Links" onclick="HL_setEditValue('HL_edit_${this.id}_horizontale_uitlijning','links')">L</button>`
+             +  ` <button type="button" class="button-lightblue" title="Centreer" onclick="HL_setEditValue('HL_edit_${this.id}_horizontale_uitlijning','centreer')">C</button>`
+             +  ` <button type="button" class="button-lightblue" title="Rechts" onclick="HL_setEditValue('HL_edit_${this.id}_horizontale_uitlijning','rechts')">R</button>`
                +  ", Type: " + this.selectPropToHTML('vrije_tekst_type',(this.heeftVerbruikerAlsKind() ? ["verbruiker"] : ["verbruiker","zonder kader"]));
                
         if (this.props.vrije_tekst_type != "zonder kader") output += ", Adres/tekst: " + this.stringPropToHTML('adres',5);

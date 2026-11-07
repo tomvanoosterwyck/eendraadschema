@@ -504,12 +504,20 @@ export class Aansluiting extends Electro_Item {
         mySVG.yup += 25;
         mySVG.ydown = 25;
 
-        // Indien adres niet leeg is, plaats het onderaan
-        if (!(/^\s*$/.test(this.props.adres))) { //check if adres contains only white space
-            mySVG.data += '<text x="' + (41+extrashift) + '" y="' + (mySVG.yup+mySVG.ydown+10) 
-                       + '" style="text-anchor:middle" font-family="Arial, Helvetica, sans-serif" font-size="10" font-style="italic">' 
-                       + htmlspecialchars(this.props.adres) + '</text>';
-            mySVG.ydown += 15;
+        // Indien adres niet leeg is, plaats het onderaan (multiline: "|" of nieuwe lijn)
+        if (!(/^\s*$/.test(String(this.props.adres ?? "")))) { //check if adres contains only white space
+            const normalized = String(this.props.adres ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+            if (!/^[\s\n\|]*$/.test(normalized)) {
+                const lines = normalized.split(/\n|\|/);
+                const x = (41 + extrashift);
+                const startY = (mySVG.yup + mySVG.ydown + 10);
+                for (let i = 0; i < lines.length; i++) {
+                    mySVG.data += '<text x="' + x + '" y="' + (startY + 15 * i)
+                               + '" style="text-anchor:middle" font-family="Arial, Helvetica, sans-serif" font-size="10" font-style="italic">'
+                               + htmlspecialchars(lines[i]) + '</text>';
+                }
+                mySVG.ydown += 15 * Math.max(1, lines.length);
+            }
         }
 
         // Naam onderaan zetten (links-onder)

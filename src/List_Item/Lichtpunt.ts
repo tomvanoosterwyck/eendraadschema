@@ -63,7 +63,10 @@ export class Lichtpunt extends Electro_Item {
                +  "Halfwaterdicht: " + this.checkboxPropToHTML('is_halfwaterdicht') + ", "
                +  "Ingebouwde schakelaar: " + this.checkboxPropToHTML('heeft_ingebouwde_schakelaar') + ", "
                +  "Noodverlichting: " + this.selectPropToHTML('type_noodverlichting',["Geen", "Centraal", "Decentraal"])
-               +  ", Adres/tekst: " + this.stringPropToHTML('adres',5);
+             +  ", Adres/tekst: " + this.stringPropToHTML('adres',5)
+             +  ` <button type="button" class="button-lightblue" title="Adres links" onclick="HL_setProp(${this.id},'adres_uitlijning','links')">L</button>`
+             +  ` <button type="button" class="button-lightblue" title="Adres centreer" onclick="HL_setProp(${this.id},'adres_uitlijning','centreer')">C</button>`
+             +  ` <button type="button" class="button-lightblue" title="Adres rechts" onclick="HL_setProp(${this.id},'adres_uitlijning','rechts')">R</button>`;
 
         return(output);
     }

@@ -288,10 +288,39 @@ export class Electro_Item extends List_Item {
 
   addAddressToSVG(mySVG: SVGelement, starty:number = 60, godown:number = 15, shiftx:number = 0): String {
     let returnstr:string = "";
-    if (!(/^\s*$/.test(this.props.adres))) { //check if adres contains only white space
-      returnstr = '<text x="' + ((mySVG.xright-20)/2 + 21 + shiftx) + '" y="' + starty + '" style="text-anchor:middle" font-family="Arial, Helvetica, sans-serif" font-size="10" font-style="italic">' + htmlspecialchars(this.props.adres) + '</text>';
-      mySVG.ydown = mySVG.ydown + godown;
+
+    const rawAdres = (this.props.adres ?? "");
+    if ((typeof rawAdres !== 'string' && typeof rawAdres !== 'number') || /^\s*$/.test(String(rawAdres))) {
+      return returnstr;
     }
+
+    const normalized = String(rawAdres).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    if (/^[\s\n\|]*$/.test(normalized)) {
+      return returnstr;
+    }
+    const lines = normalized.split(/\n|\|/);
+
+    const baseWidth = (mySVG.xright - 20);
+    const leftX = 21 + shiftx;
+
+    let textAnchor: 'start' | 'middle' | 'end' = 'middle';
+    let x = ((baseWidth) / 2 + 21 + shiftx);
+
+    const alignRaw = String(this.props.adres_uitlijning ?? 'centreer').toLowerCase();
+    if (alignRaw === 'links' || alignRaw === 'left') {
+      textAnchor = 'start';
+      x = leftX;
+    } else if (alignRaw === 'rechts' || alignRaw === 'right') {
+      textAnchor = 'end';
+      x = leftX + baseWidth;
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+      const y = starty + i * godown;
+      returnstr += '<text x="' + x + '" y="' + y + '" style="text-anchor:' + textAnchor + '" font-family="Arial, Helvetica, sans-serif" font-size="10" font-style="italic">' + htmlspecialchars(lines[i]) + '</text>';
+    }
+
+    mySVG.ydown = mySVG.ydown + godown * Math.max(1, lines.length);
     return returnstr;
   }
 

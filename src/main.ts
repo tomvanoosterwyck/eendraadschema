@@ -187,6 +187,20 @@ globalThis.forceUndoStore = () => {
     globalThis.undostruct.store();
 }
 
+// Convenience helper for UI buttons: set a HL_edit_* field and trigger the same change handler as manual edits.
+globalThis.HL_setEditValue = (elementId: string, value: string) => {
+    const el = document.getElementById(elementId) as (HTMLInputElement | HTMLSelectElement | null);
+    if (!el) return;
+    (el as any).value = value;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+// Convenience helper for UI buttons that don't have a matching HL_edit_* input.
+// Uses the same update pipeline as normal text edits.
+globalThis.HL_setProp = (id: number, key: string, value: string) => {
+    hlPropUpdate(id, key, 'text', value);
+}
+
 globalThis.HLCollapseExpand = (my_id: number, state?: Boolean) => {
     let ordinal: number|null;
     ordinal = globalThis.structure.getOrdinalById(my_id);

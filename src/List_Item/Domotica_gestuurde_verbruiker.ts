@@ -131,13 +131,20 @@ export class Domotica_gestuurde_verbruiker extends Electro_Item {
         //Place text below if there is any
 
         if (sitplan == false) {
-            if (!(/^\s*$/.test(this.props.adres))) { //check if adres contains only white space
-                mySVG.data += '<text x="' + ((mySVG.xright-20)/2 + 21 + 0) + '" y="' + (mySVG.ydown + mySVG.yup + 10) 
-                        +  '" style="text-anchor:middle" font-family="Arial, Helvetica, sans-serif" font-size="10" font-style="italic">' 
-                        + htmlspecialchars(this.props.adres) + '</text>';
-                        
-                mySVG.ydown += 15;
-            }  
+            if (!(/^\s*$/.test(String(this.props.adres ?? "")))) { //check if adres contains only white space
+                const normalized = String(this.props.adres ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+                if (!/^[\s\n\|]*$/.test(normalized)) {
+                    const lines = normalized.split(/\n|\|/);
+                    const x = ((mySVG.xright-20)/2 + 21 + 0);
+                    const startY = (mySVG.ydown + mySVG.yup + 10);
+                    for (let i = 0; i < lines.length; i++) {
+                        mySVG.data += '<text x="' + x + '" y="' + (startY + 15 * i)
+                                +  '" style="text-anchor:middle" font-family="Arial, Helvetica, sans-serif" font-size="10" font-style="italic">'
+                                + htmlspecialchars(lines[i]) + '</text>';
+                    }
+                    mySVG.ydown += 15 * Math.max(1, lines.length);
+                }
+            }
         }
 
         return(mySVG);

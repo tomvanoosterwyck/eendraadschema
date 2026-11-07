@@ -74,11 +74,19 @@ export class Domotica extends Electro_Item {
         mySVG.xright = mySVG.xleft + mySVG.xright - 1;
         mySVG.xleft = 1; //we leave one pixel for the bold kring-line at the left
 
-        // Plaats adres onderaan indien niet leeg en indien er actieve kinderen zijn
-        if (!(/^\s*$/.test(this.props.adres))) { // Controleer of adres leeg is
-            mySVG.data += '<text x="' + ((mySVG.xright-20)/2 + 21) + '" y="' + (mySVG.yup+mySVG.ydown+10)
-              + '" style="text-anchor:middle" font-family="Arial, Helvetica, sans-serif" font-size="10" font-style="italic">' + htmlspecialchars(this.props.adres) + '</text>';
-              mySVG.ydown += 15;
+        // Plaats adres onderaan indien niet leeg
+        if (!(/^\s*$/.test(String(this.props.adres ?? "")))) { // Controleer of adres leeg is
+            const normalized = String(this.props.adres ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+            if (!/^[\s\n\|]*$/.test(normalized)) {
+                const lines = normalized.split(/\n|\|/);
+                const x = ((mySVG.xright-20)/2 + 21);
+                const startY = (mySVG.yup + mySVG.ydown + 10);
+                for (let i = 0; i < lines.length; i++) {
+                    mySVG.data += '<text x="' + x + '" y="' + (startY + 15 * i)
+                      + '" style="text-anchor:middle" font-family="Arial, Helvetica, sans-serif" font-size="10" font-style="italic">' + htmlspecialchars(lines[i]) + '</text>';
+                }
+                mySVG.ydown += 15 * Math.max(1, lines.length);
+            }
         }
 
         return(mySVG);

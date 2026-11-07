@@ -100,22 +100,31 @@ export class Aftakdoos extends Electro_Item {
 
         //mySVG.data += this.addAddressToSVG(mySVG,55,10);
 
-        if (!(/^\s*$/.test(this.props.adres))) { //check if adres contains only white space
-            const textX = 35;
-            const textY = height/2+30;
-            const fontSize = 10;
-            const padding = 2;
-            const textWidth = svgTextWidth(htmlspecialchars(this.props.adres), fontSize, '');
-            const rectWidth = textWidth + padding * 2;
-            const rectHeight = fontSize + padding * 2;
+        if (!(/^\s*$/.test(String(this.props.adres ?? "")))) { //check if adres contains only white space
+            const normalized = String(this.props.adres ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+            if (!/^[\s\n\|]*$/.test(normalized)) {
+                const lines = normalized.split(/\n|\|/);
+                const textX = 35;
+                const textY = height/2+30;
+                const fontSize = 10;
+                const padding = 2;
+                const lineHeight = 15;
 
-            mySVG.data += `<rect x="${textX - rectWidth / 2}" y="${textY - rectHeight / 2 - 4}" width="${rectWidth}" height="${rectHeight}" fill="white" />`;
+                // Draw a small background rectangle per line to keep it readable
+                for (let i = 0; i < lines.length; i++) {
+                    const lineY = textY + i * lineHeight;
+                    const escaped = htmlspecialchars(lines[i]);
+                    const textWidth = svgTextWidth(escaped, fontSize, '');
+                    const rectWidth = textWidth + padding * 2;
+                    const rectHeight = fontSize + padding * 2;
+                    mySVG.data += `<rect x="${textX - rectWidth / 2}" y="${lineY - rectHeight / 2 - 4}" width="${rectWidth}" height="${rectHeight}" fill="white" />`;
+                    mySVG.data += '<text x="' + textX + '" ' + 'y="' + lineY + '" '
+                        + 'style="text-anchor:middle" font-family="Arial, Helvetica, sans-serif" font-size="10"' + '>'
+                        + escaped + '</text>';
+                }
 
-            mySVG.data += '<text x="' + textX + '" ' + 'y="' + textY + '" '
-                + 'style="text-anchor:middle" font-family="Arial, Helvetica, sans-serif" font-size="10"' + '>'
-                + this.props.adres + '</text>';
-
-            mySVG.ydown = Math.max(mySVG.ydown, 40);
+                mySVG.ydown = Math.max(mySVG.ydown, 40 + lineHeight * Math.max(0, lines.length - 1));
+            }
         }
 
         return(mySVG);

@@ -234,12 +234,19 @@ export class Kring extends Electro_Item {
 
         let addAdres = (startNumlines:number, mySVG:SVGelement): number => {
             let numlines = startNumlines;
-            if ( (this.props.adres) && (trimString(this.props.adres) != '') ) {
-                numlines++;
-                mySVG.data += "<text x=\"" + (mySVG.xleft+15+11*(numlines-1)) + "\" y=\"" + (mySVG.yup-10) + "\"" 
-                        +  " transform=\"rotate(-90 " + (mySVG.xleft+15+11*(numlines-1)) + "," + (mySVG.yup-10) + ")" 
-                        +  "\" style=\"text-anchor:middle;font-style:italic;\" font-family=\"Arial, Helvetica, sans-serif\" font-size=\"10\">" 
-                        +  htmlspecialchars(this.props.adres) + "</text>";
+            const rawAdres = this.props.adres ?? '';
+            const normalized = String(rawAdres).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+            if (trimString(normalized) !== '' && !/^[\s\n\|]*$/.test(normalized)) {
+                const lines = normalized.split(/\n|\|/);
+                for (let i = 0; i < lines.length; i++) {
+                    numlines++;
+                    const x = (mySVG.xleft + 15 + 11 * (numlines - 1));
+                    const y = (mySVG.yup - 10);
+                    mySVG.data += "<text x=\"" + x + "\" y=\"" + y + "\""
+                            +  " transform=\"rotate(-90 " + x + "," + y + ")"
+                            +  "\" style=\"text-anchor:middle;font-style:italic;\" font-family=\"Arial, Helvetica, sans-serif\" font-size=\"10\">"
+                            +  htmlspecialchars(lines[i]) + "</text>";
+                }
             }
             return numlines;
         }
